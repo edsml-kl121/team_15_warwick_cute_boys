@@ -7,14 +7,17 @@ The FastAPI backend streams chat, assembles cards from source data, and owns the
 From `BE/`:
 
 ```sh
+cp .env.example .env
 uv sync
 uv run pytest -q
-PORT=8080 uv run python -m main
+uv run python -m main
 curl -fsS http://localhost:8080/health
 curl -fsS -H 'Authorization: Bearer local-zippy' http://localhost:8080/today
 ```
 
-The default Shopee MCP URL points to the existing hosted simulator. Set `SHOPEE_MCP_URL=http://localhost:8090/mcp` for your own local copy. Tests inject a fake and require no services. The local development token is `local-zippy`. Set a separate shared `API_TOKEN` for Railway and keep it on the frontend server. Set `FRONTEND_ORIGIN` to the frontend's origin.
+The example environment uses the team's hosted Shopee simulator. Set `SHOPEE_MCP_URL=http://localhost:8090/mcp` for your own local copy. Tests inject a fake and require no services. The local development token is `local-zippy`.
+
+On Railway, set a separate shared `API_TOKEN` in Backend → Variables and give the frontend server the same value. Set `FRONTEND_ORIGIN` to the deployed frontend's origin. Use Railway's injected `PORT` and the backend image's default listen address. The local `.env` stays out of Git and the Docker image.
 
 Use `DEMO_NOW` to set the starting clock in Bangkok. The default is 07:02 on 21 November 2026. A single replica and writable `DATA_DIR` are required. The demo reset only cancels unpaid orders created by this backend.
 
