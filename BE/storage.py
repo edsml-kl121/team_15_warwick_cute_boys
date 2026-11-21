@@ -81,6 +81,8 @@ class MongoStore:
         guest = database.guests.find_one({"_id": owner})
         if guest:
             self.state.update({key: guest[key] for key in ("profile", "date", "clock")})
+            if guest.get("persona"):
+                self.state["persona"] = guest["persona"]
             self.load_records()
         source_day = database.wellness_days.find_one(
             {"dataset_id": DATASET, "date": self.state["date"]}, {"_id": 0, "dataset_id": 0, "date": 0},
@@ -126,6 +128,7 @@ class MongoStore:
         docs = {name: {} for name in COLLECTIONS if name != "wellness_days"}
         docs["guests"][self.owner] = {
             **{key: state[key] for key in ("profile", "date", "clock")},
+            **({"persona": state["persona"]} if state.get("persona") else {}),
             "dataset_id": DATASET, "demo": self.demo,
         }
         for name, key in RECORDS.items():

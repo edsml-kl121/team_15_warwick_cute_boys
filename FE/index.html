@@ -29,37 +29,46 @@
         <i class="material-icons" aria-hidden="true">menu</i>
       </button>
       <div class="brand"><img class="av" src="./assets/zippy-face.png" alt=""><div><h1>Zippy</h1><span class="header-status" role="status">Online</span></div></div>
-      <button type="button" class="ib" data-action="new-chat" aria-label="New chat">
-        <i class="material-icons" aria-hidden="true">edit_square</i>
-      </button>
+      <a class="ib" href="#profile" aria-label="Profile">
+        <i class="material-icons" aria-hidden="true">person</i>
+      </a>
     </header>
     <section class="chat" aria-label="Conversation">
       <div class="empty-chat">
-        <img class="av" src="./assets/zippy-face.png" alt="">
+        <img class="empty-mascot" src="./assets/zippy.png" alt="" width="421" height="512">
         <p>What can I help with?</p>
       </div>
       <div class="live-turns" role="log" aria-label="Messages"></div>
     </section>
     <footer class="dock" data-mode="idle">
       <div class="dock-default">
-        <button type="button" class="dk" data-action="type" aria-label="Type">
-          <i class="material-icons" aria-hidden="true">keyboard</i>
+        <button type="button" class="dk dk-type" data-action="type" aria-label="Type a message">
+          <span class="dk-icon"><i class="material-icons" aria-hidden="true">keyboard</i></span>
+          <span class="dk-label" aria-hidden="true">Type</span>
+        </button>
+        <button type="button" class="dk dk-cancel" data-action="voice-cancel" aria-label="Cancel voice message">
+          <span class="dk-icon"><i class="material-icons" aria-hidden="true">close</i></span>
+          <span class="dk-label" aria-hidden="true">Cancel</span>
         </button>
         <button type="button" class="mic" data-action="voice" aria-label="Talk to Zippy">
+          <span class="mic-ring" aria-hidden="true"></span>
           <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         </button>
-        <button type="button" class="dk" data-action="attach" aria-label="Attach a photo">
-          <i class="material-icons" aria-hidden="true">photo_camera</i>
+        <button type="button" class="dk dk-photo" data-action="attach" aria-label="Log a meal from a photo">
+          <span class="dk-icon"><i class="material-icons" aria-hidden="true">photo_camera</i></span>
+          <span class="dk-label" aria-hidden="true">Photo</span>
         </button>
       </div>
       <form class="dock-keyboard" aria-label="Message Zippy" hidden>
+        <button type="button" class="dock-back" data-action="dock-back" aria-label="Close keyboard">
+          <i class="material-icons" aria-hidden="true">keyboard_hide</i>
+        </button>
         <div class="composer-pill">
-          <input class="chat-input" aria-label="Message" placeholder="Ask Zippy" autocomplete="off" maxlength="1500" required>
-          <button class="send-message" type="submit" aria-label="Send message">
-            <i class="material-icons" aria-hidden="true">north</i>
+          <input class="chat-input" aria-label="Message" placeholder="Ask Zippy" autocomplete="off" maxlength="1500" enterkeyhint="send">
+          <button class="send-message" type="submit" aria-label="Talk instead" data-empty="true">
+            <i class="material-icons" aria-hidden="true">mic</i>
           </button>
         </div>
-        <button type="button" class="btn2 dock-back" data-action="dock-back">Back</button>
       </form>
       <div class="dock-voice" data-state="idle" hidden>
         <p class="voice-transcript" aria-label="Voice transcript"></p>

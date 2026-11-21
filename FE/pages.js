@@ -85,6 +85,10 @@
     }
 
     const linkButton = (href, label, name) => h('a', { class: 'ib', href, 'aria-label': label }, icon(name, 'font-size:22px'));
+    // Back: returns to the previous page; href is the fallback when the page was opened directly.
+    const backButton = (fallback, label = 'Back', name = 'arrow_back') => h('a', {
+      class: 'ib', href: fallback, 'aria-label': label, 'data-action': 'back',
+    }, icon(name, 'font-size:22px'));
 
     function askBar(text, actionIcon, onAction, actionLabel) {
       return h('div', { class: 'ask' },
@@ -134,7 +138,7 @@
         h('span', { style: 'flex:1', text: item.message })));
 
       return [
-        header(h('a', { class: 'ib avatar-btn', href: '#profile', 'aria-label': 'Profile' }, h('img', { src: './assets/ploy.webp', alt: '' })),
+        header(backButton('#', 'Back to chat'),
           'Today', dayLabel(data.date, { weekday: 'long', day: 'numeric', month: 'short' }),
           linkButton('#apps', 'Connected apps', 'watch')),
         h('div', { class: 'gb page-body' },
@@ -150,7 +154,8 @@
           h('div', { class: 'card progress-card' }, rows.map(([name, value, of, width, sub]) =>
             h('div', { class: 'progress-row', role: 'img', 'aria-label': `${name}: ${value} ${of}. ${sub}` },
               h('div', { class: 'split' }, h('b', { text: name }), h('span', { class: 'num' }, `${value} `, h('span', { class: 'mut', text: of }))),
-              bar(width), h('span', { class: 'mut small', text: sub })))),
+              bar(width), h('span', { class: 'mut small', text: sub }))),
+            h('a', { class: 'card-link', href: '#food' }, 'See food log', icon('chevron_right', 'font-size:18px'))),
           h('span', { class: 'sec', text: 'Zippy is on it' }),
           h('div', { class: 'card list-card' }, upcoming.length ? upcoming : h('p', { class: 'mut empty-row', text: 'Nothing scheduled yet.' }))),
         askBar('Ask Zippy', 'mic', onVoice, 'Talk to Zippy'),
@@ -158,14 +163,20 @@
     }
 
     // Food log -------------------------------------------------------------
+    const MEAL_SOURCES = {
+      photo: ['photo_camera', () => 'From your photo'],
+      chat: ['chat', () => 'From chat'],
+      shopee_food: ['storefront', meal => ['Shopee Food', meal.place].filter(Boolean).join(' · ')],
+    };
+
     function mealRow(meal) {
-      const fromPhoto = meal.source === 'photo';
+      const [sourceIcon, sourceText] = MEAL_SOURCES[meal.source] || MEAL_SOURCES.chat;
       return h('div', { class: 'gr' },
-        h('span', { class: 'meal-thumb' }, icon(fromPhoto ? 'photo_camera' : 'restaurant', 'font-size:20px')),
+        h('span', { class: 'meal-thumb' }, icon(meal.source === 'photo' ? 'photo_camera' : 'restaurant', 'font-size:20px')),
         h('span', { class: 'meal-text' },
           h('span', { class: 'mut small', text: `${meal.meal} · ${meal.time}` }),
           h('b', { text: meal.dish }),
-          h('span', { class: 'mut small' }, icon(fromPhoto ? 'photo_camera' : 'chat', 'font-size:12px'), fromPhoto ? 'From your photo' : 'From chat')),
+          h('span', { class: 'mut small' }, icon(sourceIcon, 'font-size:12px'), sourceText(meal))),
         h('span', { class: 'meal-num' }, h('b', { text: fmt(meal.kcal) }), h('span', { class: 'mut small', text: `${fmt(meal.protein_g)} g protein` })));
     }
 
@@ -184,7 +195,7 @@
         h('span', { class: 'meal-num' }, h('b', { text: `~${fmt(log.suggested.kcal)}` }), h('span', { class: 'mut small', text: `+${fmt(log.suggested.protein_g)} g protein` })));
 
       return [
-        header(linkButton('#today', 'Back to Today', 'arrow_back'), 'Food log', dayLabel(log.date, { weekday: 'long', day: 'numeric', month: 'short' })),
+        header(backButton('#today'), 'Food log', dayLabel(log.date, { weekday: 'long', day: 'numeric', month: 'short' })),
         h('div', { class: 'gb page-body' },
           h('div', { class: 'week', role: 'group', 'aria-label': 'Choose a day' }, week.map(day => h('button', {
             type: 'button', class: 'day', 'aria-pressed': String(day === log.date),
@@ -206,8 +217,59 @@
     }
 
     // Profile --------------------------------------------------------------
+    // Health data: the visitor's own history file, stored by the backend and used for recommendations.
+    const MAX_PERSONA_BYTES = 5 * 1024 * 1024;
+    const joined = (...parts) => parts.filter(part => part != null && part !== '').join(' · ') || null;
+
+    async function importPersona(input) {
+      const file = input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (file.size > MAX_PERSONA_BYTES) return showFeedback('Choose a file under 5 MB.');
+      let body;
+      try {
+        body = JSON.parse(await file.text());
+      } catch {
+        return showFeedback('That file isn’t valid JSON.');
+      }
+      try {
+        const saved = await service.json('persona', body, 'PUT');
+        showFeedback(`Imported ${saved.meals} meals for ${saved.profile.name}.`);
+        render('profile');
+      } catch (error) {
+        showFeedback(`Couldn’t import that file. ${error.message}`);
+      }
+    }
+
+    function healthSection(persona) {
+      const input = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: event => importPersona(event.target) });
+      const pick = h('button', { type: 'button', class: 'btn2 import-btn', onclick: () => input.click() },
+        icon('upload_file', 'font-size:18px'), persona ? 'Replace health data' : 'Import health data');
+      if (!persona) {
+        return [h('span', { class: 'sec', text: 'Health data' }), h('div', { class: 'card pad' },
+          h('p', { class: 'mut', text: 'Import your meal, wearable and body history (JSON) so Zippy can tailor its suggestions.' }), pick, input)];
+      }
+      const p = persona.profile;
+      const s = p.summary_30d || {};
+      const intake = s.avg_daily_intake || {};
+      const rows = [
+        ['Body', joined(p.age && `${p.age}`, p.sex, p.height_cm && `${p.height_cm} cm`, p.weight_kg && `${p.weight_kg} kg`)],
+        ['Goal', joined(p.body_goal?.replaceAll('_', ' '), p.pace_kg_per_week && `${p.pace_kg_per_week} kg/week`)],
+        ['30-day intake', joined(intake.calories && `${fmt(intake.calories)} kcal`, intake.protein_g && `${fmt(intake.protein_g)} g protein`)],
+        ['Movement · sleep', joined(s.avg_steps != null && `${fmt(Math.round(s.avg_steps))} steps`, s.avg_sleep_hours && `${s.avg_sleep_hours} h sleep`)],
+        ['Shopee Food', joined(s.shopee_orders && `${s.shopee_orders} orders`, s.shopee_spend_thb && `฿${fmt(s.shopee_spend_thb)}`)],
+      ].filter(([, value]) => value);
+      return [h('span', { class: 'sec', text: 'Health data' }), h('div', { class: 'card list-card' },
+        rows.map(([label, value]) => h('div', { class: 'gr' }, h('span', { style: 'flex:1', text: label }), h('span', { class: 'gv', text: value }))),
+        h('p', { class: 'mut small health-note', text: joined(`${persona.food_history_log.length} meals`, s.window || persona.as_of?.slice(0, 10)) }),
+        pick, input)];
+    }
+
     async function profile() {
-      const data = await service.json('profile');
+      const [data, persona] = await Promise.all([
+        service.json('profile'),
+        service.json('persona').catch(() => null), // 404 until the visitor imports a file
+      ]);
       const { goals, preferences } = data;
       const connected = data.connections.filter(item => item.connected);
       const calendars = connected.filter(item => /calendar/i.test(item.app)).map(item => item.app.replace(/\s*calendar/i, ''));
@@ -216,7 +278,7 @@
       const about = (label, value) => h('div', { class: 'gr' }, h('span', { style: 'flex:1', text: label }), h('span', { class: 'gv', text: value }));
 
       return [
-        header(linkButton('#today', 'Back to Today', 'arrow_back'), 'Profile'),
+        header(backButton('#'), 'Profile'),
         h('div', { class: 'gb page-body' },
           h('div', { class: 'profile-head' },
             h('span', { class: 'av', style: 'width:64px;height:64px' }, h('img', { src: './assets/ploy.webp', alt: '' })),
@@ -232,6 +294,7 @@
           h('div', { class: 'card list-card' },
             about('Food', preferences.food), about('Home · work', `${preferences.home} · ${preferences.work}`),
             about('Budget per meal', `up to ${fmt(preferences.budget_thb)} THB`)),
+          healthSection(persona),
           h('span', { class: 'sec', text: 'Connected' }),
           h('div', { class: 'card list-card' },
             h('a', { class: 'gr', href: '#apps' }, h('span', { class: 'gi' }, icon('apps', 'font-size:18px')),
@@ -303,7 +366,7 @@
       });
 
       return [
-        h('div', { class: 'gh' }, linkButton('#profile', 'Close', 'close'), h('h2', { class: 'apps-title', text: 'Connect apps' }),
+        h('div', { class: 'gh' }, backButton('#profile', 'Close', 'close'), h('h2', { class: 'apps-title', text: 'Connect apps' }),
           h('span', { class: 'count-pill', text: `${names.filter(isOn).length} connected` })),
         h('div', { class: 'filters', role: 'group', 'aria-label': 'Filter apps' }, FILTERS.map(([key, label]) => h('button', {
           type: 'button', class: `chip${appFilter === key ? ' on' : ''}`, 'aria-pressed': String(appFilter === key), text: label,

@@ -77,15 +77,15 @@ Use simulated payments, demo health data, a phone-sized web app and test booking
 | Chat | SDK default `gpt-5.6-luna` with reasoning `none`, also used for meal photos |
 | Calls | `gpt-realtime-2.1`, transcription `gpt-live-transcribe` with `languages: ["en", "th"]`, Twilio 9.x REST and Media Streams |
 | Shopee | Simulator at `https://shopee-sim-production.up.railway.app/mcp` |
-| Data | Backend JSON files and an injectable demo health provider. WHOOP is a stretch goal. |
-| Images | Amazon S3 for meal photos and dish images. Backend supplies URLs. |
+| Data | MongoDB on Railway for guest data (JSON files under `DATA_DIR` locally), an injectable demo health provider, and optional imported health history per guest. WHOOP is a stretch goal. |
+| Images | Railway S3-compatible bucket for meal photos. MongoDB stores object keys and the backend signs URLs. |
 | Scheduling | Railway cron and a manual demo trigger |
 | Other Python libraries | `python-dotenv`, `pyyaml`, `python-multipart`, `boto3`, `httpx` |
 
 ## 3. Architecture
 
 - **Frontend (`FE/`).** Renders streamed chat, cards, quick replies, header status, the simulated lock screen, general pages and order summary. Polls the feed and opens the PIN page.
-- **Backend (`BE/`).** Hosts REST, NDJSON, Twilio callbacks and the media WebSocket. Owns settings, the JSON store, demo data and clock, prompts, the coach, MCP client, photos and S3 URLs, call agent and bridge, and reminders.
+- **Backend (`BE/`).** Hosts REST, NDJSON, Twilio callbacks and the media WebSocket. Owns settings, the MongoDB store (JSON fallback locally), demo data and clock, prompts, the coach, MCP client, photos and S3 URLs, call agent and bridge, and reminders.
 - **Cron.** Calls `POST /proactive` and exits. The demo trigger can invoke the same moments.
 - **Shopee MCP (`MCP/`).** Separate simulator service with demo products and restaurants, plus team-owned test numbers. It supplies Mall, Food listings and the ShopeePay handoff.
 - **Deployment.** GitHub Actions deploys tested services to Railway.
@@ -93,7 +93,7 @@ Use simulated payments, demo health data, a phone-sized web app and test booking
 ```text
 Frontend ── REST, chat stream, feed ──► FastAPI ◄── proactive POST ── Cron
 FastAPI ──► Agents SDK ──► OpenAI chat / Shopee MCP
-FastAPI ──► JSON store / S3 / health provider
+FastAPI ──► MongoDB (JSON locally) / S3 bucket / health provider
 FastAPI ── Twilio REST calls.create ──► Twilio
 Twilio ── Media Stream /media-stream ──► FastAPI bridge ⇄ OpenAI Realtime
 Twilio ── POST /call-status ──► FastAPI ──► booking, feed and coach follow-up
@@ -137,11 +137,14 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | Route | Caller and behavior |
 |---|---|
 | `GET /health` | Railway health check, returns `{"status":"ok"}` |
+| `GET /visitor`, `POST /visitor` | Check for a guest cookie or create a guest profile from a display name and optional food preferences and budget |
 | `GET /profile`, `PUT /profile` | Frontend reads or updates goals, preferences and connections |
+| `GET /persona`, `PUT /persona` | Frontend imports or reads the visitor's own health history. Import updates profile targets and the food log and feeds the coach's summary tool. |
 | `GET /today` | Frontend reads recovery, sleep, nutrition, activity and upcoming actions |
 | `GET /food-log?date=` | Frontend reads meals and totals |
 | `POST /food-log/photo` | Frontend uploads a meal photo |
 | `POST /chat` | Frontend receives streamed NDJSON |
+| `GET /sessions`, `GET /sessions/{id}` | List and restore the visitor's chats, with their cards and feed cursor |
 | `GET /feed?session_id=&after=` | Frontend polls every 1–2 seconds for proactive and asynchronous items |
 | `POST /actions/buy`, `POST /actions/pay` | Frontend places a Mall order and requests payment |
 | `GET /shopee-orders/{id}` | Frontend polls order status while the PIN page is open |
@@ -152,7 +155,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `WS /media-stream` | Twilio streams call audio |
 | `WS /voice` | Browser voice coach (stretch) |
 
-Frontend, cron and demo routes use shared `API_TOKEN` through an Authorization Bearer header or a `token` WebSocket query parameter. Validate `X-Twilio-Signature` on Twilio routes. Set CORS to `FRONTEND_ORIGIN`.
+Frontend, cron and demo routes use shared `API_TOKEN` through an Authorization Bearer header or a `token` WebSocket query parameter. Browser data routes also require the guest cookie. The Ploy walkthrough uses a separate demo cookie selected by the `X-Zippy-Demo: 1` header. Validate `X-Twilio-Signature` on Twilio routes. Set CORS to `FRONTEND_ORIGIN`.
 
 ### Chat stream and feed
 
@@ -194,7 +197,7 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 - **Food entry.** `id, date, time, meal, dish, kcal, protein_g, carbs_g, fat_g, source, photo_url?`. Sources are `photo`, `chat` and `suggested`.
 - **Booking.** `id, shop_id, restaurant_name, phone, party_size, time, name, status, call_sid, duration_s, quote, created_at`. Statuses are `calling`, `in_call`, `booked`, `no_answer`, `full` and `failed`.
 - **Reminder.** `id, at, message, status`. Statuses are `scheduled` and `sent`.
-- **Feed and chat history.** Separate item lists per session. Persist these and the other records in JSON under `DATA_DIR`.
+- **Feed and chat history.** Store ordered turns and feed events per guest conversation. MongoDB stores these records, guest profiles, mock wellness dates, meal metadata and workflow state. Local development can fall back to JSON under `DATA_DIR`. The bucket stores food images.
 
 | Tool owner | Tools |
 |---|---|

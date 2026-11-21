@@ -6,11 +6,11 @@ Use the [Zippy API contracts](../ZIPPY_SPEC.md#5-contracts) for route and card d
 
 The chat client defaults to `./api/`. Caddy strips the `/api` prefix before forwarding to `BACKEND_URL` and adds the server-side `API_TOKEN`. Set matching tokens on both deployed servers. If hosting the frontend on S3 later, set the `zippy-api` meta tag to the HTTPS prefix of an authenticated API gateway or frontend proxy. Keep API tokens and AWS credentials out of static files.
 
-The frontend opens with an empty conversation. For live use, configure the backend for the intended user and sources. Backend demo mode can still supply the documented Ploy data. The frontend shows only what the selected backend sends.
+First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Submit `POST /visitor` with a display `name`, optional `food` and optional `budget_thb`. The backend sets a same-origin HTTP-only cookie. Open `/?demo=ploy` for the Ploy scenario. The frontend sets the `X-Zippy-Demo: 1` header and the backend issues a separate demo cookie.
 
 ## Chat and shopping
 
-1. Accept `POST /chat` with `{session_id, message}`. The browser gives each conversation its own session ID and stores its visible history for the current tab. Return `application/x-ndjson` and finish with a `done` or `error` event. Keep authoritative conversation state on the server.
+1. Accept `POST /chat` with `{session_id, message}`. The browser generates a conversation ID and the guest cookie scopes it to its owner. Return `application/x-ndjson` and finish with a `done` or `error` event. On return, `GET /sessions` lists conversations and `GET /sessions/{id}` returns ordered chat turns, cards and feed events with `last_feed_id` for polling.
 2. Send `delta` events for text, `card` events for results, and `quick_replies` events for tap-to-send suggestions. Use tool data from the current session. For empty searches, send a factual text response and omit the card.
 3. Accept `POST /actions/buy` with `{session_id, item_id}` after the user chooses a product. Return the `order_summary`, including `order_id`, `item` (`name`, `shop`, `price_thb`), `shipping_thb`, `total_thb`, and optional `arrival_date` and `address`. Accept `POST /actions/cancel` with `{session_id, order_id}` when the user leaves the review without opening checkout.
 4. Accept `POST /actions/pay` with `{session_id, order_id}` after explicit approval to continue. Return `approve_url` for the hosted ShopeePay page. The browser opens that page and polls `GET /shopee-orders/{order_id}?session_id=…`. Report payment only after provider verification. Publish the receipt and any reminder to `GET /feed?session_id=…&after=…` with increasing IDs so they appear once.
@@ -57,7 +57,7 @@ The reference order is 199 THB plus 30 THB shipping, totaling 229 THB. An exampl
 
 Browser speech recognition supplies interim words where supported. Optionally set the `zippy-transcribe` meta tag to a separate transcription endpoint. Accept multipart `audio` and return `{"text":"…"}`. This fallback transcribes after capture ends. The current FastAPI backend has the meal photo route, but no browser transcription route.
 
-The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add the meal summary to the session feed after storage and analysis succeed.
+The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add the meal summary to the session feed after storage and analysis succeed. MongoDB holds the meal and its image key. The Food Log response includes a freshly signed `photo_url` when an image is available.
 
 ## Integration acceptance
 
@@ -70,6 +70,10 @@ The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add
 The Today, Food log, Profile and Connect apps pages read `GET /today`, `GET /food-log?date=YYYY-MM-DD` and `GET /profile`. Connect apps writes the whole profile back with `PUT /profile`, adding or updating one `{app, connected, shares}` entry. The app catalog (descriptions, logos and what each app can share) lives in `pages.js`. Connection state comes only from the backend.
 
 Feed items may carry `notify: {title, body}`, which shows the simulated lock screen, and `header_status` (`online`, `calling`, `in_call`), which updates the chat header.
+
+## Health history import
+
+Profile › Health data reads `GET /persona` (404 until imported) and imports a JSON file with `PUT /persona`. The file follows the persona shape: `profile` (requires `persona_id` and `display_name`), `food_history_log`, `wearable_daily`, `workouts`, `weights` and `body_composition_scans`. The frontend rejects files over 5 MB before upload. Imported meals appear in the Food log for their dates, and Shopee Food orders show their restaurant.
 
 ## Presenter dashboard
 

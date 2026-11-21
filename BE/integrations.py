@@ -10,6 +10,8 @@ from string import Formatter
 import yaml
 from pydantic import BaseModel, Field
 
+from persona import recommendation_context
+
 
 class Prompts:
     expected = {
@@ -175,6 +177,12 @@ class AgentsCoach:
             return service.state["profile"]
 
         @function_tool
+        async def get_health_history() -> dict:
+            """Read a summary of the visitor's imported history: targets, 30-day averages, recent meals,
+            favourite restaurants and dishes, wearables, workouts and weight trend. Use it to personalise advice."""
+            return recommendation_context(service.state.get("persona"))
+
+        @function_tool
         async def get_food_log() -> dict:
             """Read today's logged meals and totals."""
             return service.food_log(service.state["date"])
@@ -182,7 +190,7 @@ class AgentsCoach:
         agent = Agent(name="Zippy", instructions="\n".join(
             self.prompts.get(key) for key in ("coach.shared", "coach.chat_style")
         ), model_settings=ModelSettings(reasoning=Reasoning(effort="none")),
-            tools=[get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log])
+            tools=[get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history])
         run = Runner.run_streamed(agent, [*history[-12:], {"role": "user", "content": message}], max_turns=4)
         try:
             async for event in run.stream_events():

@@ -11,6 +11,15 @@ Zippy is a chat-first proactive health assistant. The demo follows Ploy from a s
 - **Payments and calls.** Ploy approves every payment on the simulator's ShopeePay PIN page. Zippy only requests payment. Use Shopee Food for listings and Twilio for table reservations. Use only verified team test numbers for live calls. Read [the safety rules](ZIPPY_SPEC.md#10-safety-rules) before exercising these flows.
 - **Verification.** Keep external dependencies injectable and cover behavior changes with focused, offline tests. See [the test plan](ZIPPY_SPEC.md#8-testing).
 
+## Current infrastructure
+
+- **Hosting.** Railway runs three services: the frontend (Caddy serving `FE/` and proxying `/api/*` to the backend with the server-side `API_TOKEN`), the backend (FastAPI in `BE/`, one replica) and the Shopee simulator (`MCP/`).
+- **Database.** MongoDB on the Railway private network (`MONGO_URL`, database `zippy`) stores all guest data: `guests` (profile, goals, connections and any imported health history), `wellness_days`, `meals`, `sessions`, `session_events`, `orders`, `bookings` and `reminders`. Startup creates collections and indexes. Without `MONGO_URL`, local runs fall back to JSON files under `DATA_DIR`. See [BE/README.md](BE/README.md#guest-storage-on-railway).
+- **Files.** A Railway S3-compatible bucket stores meal photos. MongoDB keeps only the object key, and the backend signs URLs on read.
+- **Visitors.** Each browser gets a guest cookie (`POST /visitor`). `/?demo=ploy` opens the scripted Ploy demo with its own cookie and presenter controls.
+- **Health history.** A visitor can import their own history file (profile, meals, wearables, workouts, weights and body scans) with `PUT /persona`. The backend stores it on the guest, maps it into the profile goals and food log, and gives the coach a compact summary through the `get_health_history` tool. The raw log never goes to the model.
+- **Frontend.** Static HTML, CSS and JavaScript with no build step. It is installable to the iOS Home Screen (`manifest.webmanifest`). `sw.js` shows web push, which still needs the backend routes described in [FE/CHAT_API.md](FE/CHAT_API.md#web-push-backend-work-needed).
+
 ## Where to work
 
 - Frontend changes belong in `FE/`. Keep frontend setup and run commands in [FE/README.md](FE/README.md).

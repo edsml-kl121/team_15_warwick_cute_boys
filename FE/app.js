@@ -4,6 +4,7 @@
   const log = document.querySelector('.live-turns');
   const dock = document.querySelector('.dock');
   const input = dock.querySelector('.chat-input');
+  const sendButton = dock.querySelector('.send-message');
   const keyboard = dock.querySelector('.dock-keyboard');
   const voiceDock = dock.querySelector('.dock-voice');
   const waveform = dock.querySelector('[data-action="voice"]');
@@ -105,6 +106,7 @@
     }
     if (next === 'typing') {
       input.value = active.draft || '';
+      updateSendButton();
       input.focus({ preventScroll: true });
       scrollToLatest();
     } else if (restoreFocus) {
@@ -112,9 +114,18 @@
     }
   }
 
+  // Empty composer: the send button offers voice instead, like most chat apps.
+  function updateSendButton() {
+    const empty = !input.value.trim();
+    sendButton.dataset.empty = String(empty);
+    sendButton.setAttribute('aria-label', empty ? 'Talk instead' : 'Send message');
+    sendButton.querySelector('.material-icons').textContent = empty ? 'mic' : 'north';
+  }
+
   function openVoice() {
     if (mode === 'voice') return finishVoice();
     if (active.pending) return showFeedback('Wait for the current reply before sending another message.');
+    navigator.vibrate?.(10);
     voiceText = '';
     transcript.textContent = '';
     sendingVoice = false;
@@ -554,15 +565,50 @@
     lock.querySelector('.nt').focus({ preventScroll: true });
   }
 
+  // Depth decides slide direction; the stack lets Back return to wherever you came from.
+  const DEPTH = { chat: 0, today: 1, profile: 1, food: 2, apps: 2 };
+  let navStack = [];
+
   function route() {
     if (!ready) return;
     const page = location.hash.slice(1);
     const view = pages.pages.includes(page) ? page : 'chat';
+    const previous = main.dataset.view;
+    const isBack = navStack.at(-2) === view;
+    if (isBack) navStack = navStack.slice(0, -1);
+    else if (navStack.at(-1) !== view) navStack = [...navStack, view];
+    main.dataset.navDir = !previous || previous === view ? ''
+      : isBack || DEPTH[view] < DEPTH[previous] ? 'back' : 'forward';
     main.dataset.view = view;
     for (const section of main.querySelectorAll('.page')) section.hidden = section.dataset.page !== view;
     if (view === 'chat') return renderMessages();
     setMode('idle');
     pages.render(view);
+  }
+
+  function goBack(fallback = '#') {
+    if (navStack.length > 1) return window.history.back();
+    location.hash = fallback;
+  }
+
+  // Swipe right from the left edge goes back, since a Home Screen app has no browser Back button.
+  function enableEdgeSwipe() {
+    let start = null;
+    main.addEventListener('touchstart', event => {
+      const touch = event.touches[0];
+      const left = main.getBoundingClientRect().left;
+      start = main.dataset.view !== 'chat' && touch.clientX - left < 28 ? { x: touch.clientX, y: touch.clientY } : null;
+    }, { passive: true });
+    main.addEventListener('touchend', event => {
+      if (!start) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - start.x;
+      const dy = Math.abs(touch.clientY - start.y);
+      start = null;
+      if (dx < 70 || dy > 60) return;
+      const back = main.querySelector('.page:not([hidden]) [data-action="back"]');
+      goBack(back?.getAttribute('href') || '#');
+    }, { passive: true });
   }
 
   async function triggerDemo(control) {
@@ -614,6 +660,7 @@
     },
     type: () => setMode('typing'),
     'dock-back': () => setMode('idle', true),
+    'voice-cancel': () => setMode('idle', true),
     voice: openVoice,
     'quick-reply': control => sendMessage(control.textContent.trim()),
     attach: () => {
@@ -627,6 +674,7 @@
     quote: control => reviewOrder(control.dataset.productId, control),
     checkout,
     demo: triggerDemo,
+    back: control => goBack(control.getAttribute('href')),
     'enable-push': control => push.enable(active.id, control),
     'demo-reset': resetDemo,
     'open-notification': () => {
@@ -638,6 +686,7 @@
 
   document.addEventListener('click', event => {
     const control = event.target.closest('[data-action]');
+    if (control?.dataset.action === 'back') event.preventDefault();
     if (control) actions[control.dataset.action]?.(control);
     else if (event.target === history) closeHistory();
   });
@@ -676,13 +725,18 @@
       showFeedback(error.message);
     }
   });
-  input.addEventListener('input', () => { active.draft = input.value; });
+  input.addEventListener('input', () => {
+    active.draft = input.value;
+    updateSendButton();
+  });
   keyboard.addEventListener('submit', event => {
     event.preventDefault();
     const text = input.value.trim();
-    if (!text || active.pending) return;
+    if (active.pending) return;
+    if (!text) return openVoice();
     active.draft = '';
     input.value = '';
+    updateSendButton();
     sendMessage(text);
   });
   document.addEventListener('keydown', event => {
@@ -744,6 +798,7 @@
   history.querySelector('.demo-controls').hidden = !service.demo;
   history.querySelector('.demo-entry').hidden = service.demo;
   window.addEventListener('hashchange', route);
+  enableEdgeSwipe();
   main.inert = true;
   start();
   setInterval(checkUpdates, 2500);

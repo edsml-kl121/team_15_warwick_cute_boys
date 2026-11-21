@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from demo import DINNER, NUTRIENTS, after_minutes
+from persona import persona_meals
 
 
 MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19:40"}
@@ -75,7 +76,7 @@ class Zippy:
                      for item in self.state["reminders"].values() if item["status"] == "scheduled"]}
 
     def food_log(self, date):
-        meals = [meal for meal in self.state["food"] if meal["date"] == date]
+        meals = [meal for meal in self.state["food"] if meal["date"] == date] + persona_meals(self.state.get("persona"), date)
         return {"date": date, "meals": meals, "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
                 "suggested": DINNER if self.store.demo and date == self.state["date"] else None}
 

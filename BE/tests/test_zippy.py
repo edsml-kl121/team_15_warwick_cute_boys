@@ -1,10 +1,12 @@
 import json
 from contextlib import contextmanager
 
+import mongomock
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from main import Settings, create_app
+from storage import COLLECTIONS
 
 
 class FakeShopee:
@@ -76,6 +78,7 @@ def demo(tmp_path, **options):
     settings.mongo_url = None
     settings.secure_cookies = False
     fake = FakeShopee()
+    options.setdefault("database", mongomock.MongoClient().zippy)
     app = create_app(settings=settings, shopee=fake, phone=FakePhone(), photos=FakePhotos(), **options)
     with TestClient(app, headers={"Authorization": "Bearer test-token", "X-Zippy-Demo": "1"}) as client:
         assert client.get("/today").status_code == 401
@@ -159,3 +162,106 @@ def test_photo_reset_and_access_checks(tmp_path):
         assert simulator.status == "cancelled"
         assert client.get("/food-log").json()["totals"]["protein_g"] == 50
         assert client.get("/feed").json() == []
+
+
+def test_guest_data_and_cards_survive_backend_restart(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest_headers = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        assert client.get("/visitor", headers=guest_headers).json() == {"ready": False}
+        assert client.get("/profile", headers=guest_headers).status_code == 401
+        reply = client.post("/visitor", headers=guest_headers, json={
+            "name": "  Nok ", "food": "Vegetarian", "budget_thb": 200,
+        })
+        assert reply.is_success
+        assert "httponly" in reply.headers["set-cookie"].lower()
+        guest_token = client.cookies["zippy_guest"]
+        assert client.get("/profile", headers=guest_headers).json()["name"] == "Nok"
+        assert client.get("/profile").json()["name"] == "Ploy"
+        assert client.get("/today", headers=guest_headers).json()["demo_data"] is True
+        assert client.post("/demo/reset", headers=guest_headers).status_code == 403
+        chat = client.post("/chat", headers=guest_headers, json={"session_id": "guest-chat", "message": "How did I sleep?"})
+        assert json.loads(chat.text.splitlines()[-1]) == {"type": "done"}
+        image = client.post("/food-log/photo?session_id=guest-chat", headers=guest_headers,
+                            files={"file": ("meal.jpg", b"photo", "image/jpeg")})
+        assert image.is_success
+        photo_url = image.json()["photo_url"]
+        image_doc = database.meals.find_one({"id": image.json()["id"]})
+        assert image_doc["photo_key"].startswith("meals/")
+        assert "photo_url" not in image_doc
+        assert client.get("/sessions/guest-chat").status_code == 404
+        assert client.post("/demo/reset").is_success
+        client.cookies.delete("zippy_guest")
+        assert client.post("/visitor", headers=guest_headers, json={"name": "Pim"}).is_success
+        assert client.get("/sessions", headers=guest_headers).json() == []
+        assert client.get("/sessions/guest-chat", headers=guest_headers).status_code == 404
+        assert client.get("/food-log", headers=guest_headers).json()["meals"] == []
+
+    with demo(tmp_path, database=database) as (client, _):
+        client.cookies.set("zippy_guest", guest_token)
+        assert client.get("/visitor", headers=guest_headers).json() == {"ready": True}
+        profile = client.get("/profile", headers=guest_headers).json()
+        assert profile["name"] == "Nok"
+        assert profile["preferences"]["budget_thb"] == 200
+        history = client.get("/sessions/guest-chat", headers=guest_headers).json()
+        assert history["last_feed_id"] == 1
+        assert [event["type"] for event in history["timeline"]] == ["turn", "feed"]
+        assert cards(history["timeline"][0]["events"])[0]["deep_minutes"] == 58
+        assert client.get("/food-log", headers=guest_headers).json()["meals"][0]["photo_url"] == photo_url
+        assert database.wellness_days.count_documents({}) == 1
+        assert set(database.list_collection_names()) == set(COLLECTIONS)
+
+
+PERSONA = {
+    "as_of": "2026-12-20T23:59:00+07:00",
+    "profile": {
+        "persona_id": "P01", "display_name": "Krit", "age": 25, "daily_calorie_target": 2491,
+        "macro_targets": {"carbs_g": 232, "fat_g": 56, "protein_g": 142},
+        "cuisine_prefs": ["italian"], "favorite_dishes": ["Spaghetti Bolognese"],
+        "home_area": {"district": "Ari", "city": "Bangkok"}, "connected_sources": ["fitbit", "whoop"],
+        "summary_30d": {"avg_daily_intake": {"calories": 2681}},
+    },
+    "food_history_log": [
+        {"log_id": "P01-1", "date": "2026-11-21", "timestamp": "2026-11-21T12:05:00+07:00", "meal_time": "lunch",
+         "meal_name": "Thai Pork Spread", "channel": "shopee_food_order", "order": {"restaurant": "FitMeal BKK"},
+         "items": [{"dish_name": "Steamed Jasmine Rice"}],
+         "meal_totals": {"calories": 1082, "protein_g": 80.7, "carbs_g": 77.4, "fat_g": 46.3}},
+        {"log_id": "P01-2", "date": "2026-11-22", "timestamp": "2026-11-22T09:59:00+07:00", "meal_time": "breakfast",
+         "channel": "agent_call", "agent_call": {"logged_via": "photo"}, "items": [{"dish_name": "Omurice"}],
+         "meal_totals": {"calories": 600, "protein_g": 22, "carbs_g": 83.6, "fat_g": 20.9}},
+    ],
+    "wearable_daily": [{"date": "2026-11-21", "steps": 2407}],
+    "weights": [{"date": "2026-11-21", "weight_kg": 72.2}, {"date": "2026-12-18", "weight_kg": 71.3}],
+}
+
+
+def test_persona_upload_personalises_profile_food_log_and_coach_context(tmp_path):
+    from persona import recommendation_context
+
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Guest"}).is_success
+        assert client.get("/persona", headers=guest).status_code == 404
+        assert client.put("/persona", headers=guest, json={"profile": {"display_name": "No id"}}).status_code == 422
+
+        saved = client.put("/persona", headers=guest, json=PERSONA)
+        assert saved.is_success and saved.json()["meals"] == 2
+        profile = client.get("/profile", headers=guest).json()
+        assert profile["name"] == "Krit" and profile["location"] == "Ari, Bangkok"
+        assert profile["goals"]["kcal"] == 2491 and profile["goals"]["protein_g"] == 142
+        assert {"Fitbit", "Whoop"} <= {item["app"] for item in profile["connections"]}
+
+        meals = client.get("/food-log?date=2026-11-21", headers=guest).json()
+        assert [(meal["dish"], meal["source"], meal["place"]) for meal in meals["meals"]] == [
+            ("Thai Pork Spread", "shopee_food", "FitMeal BKK")]
+        assert meals["totals"]["kcal"] == 1082
+        assert client.get("/food-log?date=2026-11-22", headers=guest).json()["meals"][0]["source"] == "photo"
+        assert client.get("/persona").status_code == 404  # the Ploy demo visitor stays separate
+
+    stored = database.guests.find_one({"persona.profile.persona_id": "P01"})
+    assert stored is not None
+    context = recommendation_context(stored["persona"])
+    assert context["top_restaurants"] == ["FitMeal BKK"]
+    assert context["weight_trend"]["last"]["weight_kg"] == 71.3
+    assert recommendation_context(None) == {"available": False}

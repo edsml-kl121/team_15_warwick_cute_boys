@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, StringConstraints
 
 from demo import Clock, DEMO_DATE
 from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
+from persona import Persona, apply_to_profile
 from service import MOMENTS, Zippy
 from storage import DemoHealth, JsonStore, VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
@@ -309,6 +310,23 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             zippy.state["profile"] = body.model_dump()
             zippy.store.save()
             return zippy.state["profile"]
+
+    @app.get("/persona", dependencies=protected)
+    async def get_persona(zippy=Depends(service)):
+        persona = zippy.state.get("persona")
+        if persona is None:
+            raise HTTPException(404, "No health data imported yet.")
+        return persona
+
+    @app.put("/persona", dependencies=protected)
+    async def put_persona(body: Persona, zippy=Depends(service)):
+        persona = body.model_dump(mode="json")
+        async with zippy.mutation:
+            zippy.state["persona"] = persona
+            zippy.state["profile"] = apply_to_profile(zippy.state["profile"], persona)
+            zippy.store.save()
+        return {"persona_id": persona["profile"]["persona_id"], "meals": len(persona["food_history_log"]),
+                "profile": zippy.state["profile"]}
 
     @app.get("/today", dependencies=protected)
     async def today(zippy=Depends(service)):
