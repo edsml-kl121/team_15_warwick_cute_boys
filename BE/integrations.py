@@ -267,10 +267,27 @@ class AgentsCoach:
             return service.food_log(service.state["date"])
 
         @function_tool
-        async def find_similar_dishes(dish: str) -> dict:
+        async def show_products(query: str) -> dict:
+            """Search Shopee Mall for something the visitor wants to buy and display up to four products as cards
+            they can review and buy. Use a short shopping query, e.g. "eye mask" or "protein bar"."""
+            products = await service.find_products(session_id, query)
+            if not products:
+                return {"kind": "product_compare", "products": []}
+            card = service.product_card(products)
+            cards.put_nowait(card)
+            return card
+
+        @function_tool
+        async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
             """Find Shopee Food places near the visitor that serve this dish within their budget and display them.
-            Only these places can be booked. Use the returned shop_id with book_table_by_phone."""
-            await service.find_places(session_id, dish)
+            Only these places can be booked. Use the returned shop_id with book_table_by_phone.
+
+            Args:
+                dish: A concrete dish, e.g. "grilled chicken salad".
+                protein_g: Optional protein target in grams; also surfaces similar dishes when no name matches.
+                calories: Optional calorie target for the dish.
+            """
+            await service.find_places(session_id, dish, calories, protein_g)
             card = {"kind": "places", "places": service.session(session_id)["places"]}
             if card["places"]:
                 cards.put_nowait(card)
@@ -289,7 +306,7 @@ class AgentsCoach:
             return {key: booking[key] for key in ("id", "restaurant_name", "time", "party_size", "status")}
 
         return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history,
-                find_similar_dishes, book_table_by_phone]
+                show_products, find_similar_dishes, book_table_by_phone]
 
     def input(self, service, session_id, message, history):
         """Chat history keeps only text, so restate the bookable places and their shop IDs every turn.

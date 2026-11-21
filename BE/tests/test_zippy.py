@@ -307,6 +307,25 @@ def test_booking_a_time_that_already_passed_today_is_refused(tmp_path):
         assert [booking["time"] for booking in visitor(client).state["bookings"].values()] == ["20:15"]
 
 
+def test_coach_shows_products_as_cards_the_visitor_can_buy(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "show_products", query="eye mask")
+        assert ("search_products", {"query": "eye mask"}) in simulator.calls
+        card = shown.get_nowait()
+        assert card["kind"] == "product_compare"
+        assert [product["item_id"] for product in card["products"]] == ["p_eyemask"]
+        assert client.post("/actions/buy", json={"item_id": "p_eyemask"}).json()["total_thb"] == 229
+
+
+def test_coach_dish_search_can_target_protein_and_calories(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "find_similar_dishes", dish="high-protein snack", protein_g=30, calories=250)
+        search = simulator.dish_searches[-1]
+        assert (search["dish"], search["protein_g"], search["calories"]) == ("high-protein snack", 30, 250)
+
+
 def test_coach_refuses_unlisted_restaurant_or_bad_booking_details(tmp_path):
     with demo(tmp_path) as (client, simulator):
         tools, _ = coach_tools(client)

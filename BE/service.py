@@ -160,6 +160,22 @@ class Zippy:
                 "body": notification,
             }}, *items)
 
+    async def find_products(self, session_id, query):
+        """Search Shopee Mall and remember up to four results so the visitor can buy one."""
+        results = await self.shopee.call("search_products", query=query)
+        products = [{
+            "item_id": row.get("product_id") or row["id"], "name": row["name"], "shop": row["shop"],
+            "price_thb": row["price_thb"], "rating": row["rating"], "image_url": row.get("image_url"),
+            "note": row.get("description") or query.capitalize(),
+        } for row in results[:4]]
+        self.session(session_id)["products"] = products
+        return products
+
+    def product_card(self, products):
+        prices = [product["price_thb"] for product in products]
+        return {"kind": "product_compare", "products": products, "best_item_id": products[0]["item_id"],
+                "more": {"count": max(0, len(products) - 2), "price_range": [min(prices), max(prices)]}}
+
     async def find_places(self, session_id, dish, calories=None, protein_g=None):
         """Find nearby Shopee Food places for a dish within budget and remember the top three for booking."""
         results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
@@ -190,23 +206,13 @@ class Zippy:
             yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}
         elif answer == "show me options":
             yield {"type": "tool", "name": "search_products"}
-            results = await self.shopee.call("search_products", query="eye mask")
-            products = [{
-                "item_id": row.get("product_id") or row["id"], "name": row["name"], "shop": row["shop"],
-                "price_thb": row["price_thb"], "rating": row["rating"], "image_url": row.get("image_url"),
-                "note": row.get("description") or "Sleep eye mask",
-            } for row in results[:4]]
+            products = await self.find_products(session_id, "eye mask")
             products.sort(key=lambda product: {"p_eyemask": 0, "p_eyemask_cotton": 1}.get(product["item_id"], 2))
             if not products:
                 yield {"type": "delta", "text": "I couldn't find a matching mask on Shopee Mall."}
                 return
-            best = products[0]
-            session["products"] = products
-            yield {"type": "delta", "text": f"I compared {len(products)} shops on Shopee Mall. {best['note']}."}
-            prices = [product["price_thb"] for product in products]
-            yield {"type": "card", "card": {"kind": "product_compare", "products": products,
-                   "best_item_id": best["item_id"], "more": {"count": max(0, len(products) - 2),
-                   "price_range": [min(prices), max(prices)]}}}
+            yield {"type": "delta", "text": f"I compared {len(products)} shops on Shopee Mall. {products[0]['note']}."}
+            yield {"type": "card", "card": self.product_card(products)}
         elif pending == "walk" and answer in {"yes", "yes, i'll walk", "i'll walk"}:
             session["pending"] = "book"
             name = session["places"][0]["name"]
