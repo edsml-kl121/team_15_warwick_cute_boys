@@ -54,6 +54,8 @@ Keep one Backend replica. Local runs without `MONGO_URL` use scoped JSON files u
 
 Set `OPENAI_API_KEY` to enable meal scanning. Each scan sends a resized JPG to one vision model using the Responses API and saves the estimated foods, portions and totals. The default `FOOD_SCAN_MODEL` is `gpt-4.1-mini`. When the optional storage bucket is configured, it stores JPEG food images, MongoDB saves each image's object key, and the backend issues a fresh signed URL for display.
 
+Menu and restaurant pictures for recommendation cards also come from the bucket. Upload them as `dishes/<dish-slug>.jpg` and `restaurants/<shop_id>.jpg` (`.webp` and `.png` also work). The slug is the dish name in lowercase with runs of other characters replaced by `-`, for example `dishes/spaghetti-bolognese.jpg` or `restaurants/s_easy_health.jpg`. The backend signs a URL when the file exists, even without `OPENAI_API_KEY`. Otherwise the app falls back to its bundled demo photos, then to the simulator's cuisine photo.
+
 ## Web push and presenter
 
 Generate a VAPID key pair once with `uv run python -m push`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` contact) on the Backend. `GET /push/key` returns the public key, and `POST /push/subscribe` saves the browser's subscription on the guest (`push_subscriptions` on the `guests` document, up to 10 devices). Every feed item with `notify` is pushed to that guest's devices, and devices the push service reports as gone (404 or 410) are removed. Without the keys, `/push/key` answers 503 and the app shows an in-app lock screen only.

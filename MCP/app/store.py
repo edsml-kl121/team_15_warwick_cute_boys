@@ -202,8 +202,7 @@ class Store:
                 else name_score
             )
             if score >= MIN_MATCH:
-                restaurant = {k: v for k, v in shop.items() if k != "image_url"}
-                hits.append({**item, "match_score": round(score, 2), "restaurant": restaurant})
+                hits.append({**item, "match_score": round(score, 2), "restaurant": dict(shop)})
         hits.sort(key=lambda h: (-h["match_score"], h["restaurant"]["distance_km"]))
         return hits[:limit]
 

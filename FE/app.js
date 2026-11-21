@@ -222,6 +222,20 @@
     return [chart, legend];
   }
 
+  // Decorative picture from the backend or bundled assets; removed if it fails to load.
+  function remoteImage(value, className) {
+    const url = value && safeURL(value);
+    if (!url) return null;
+    const img = node('img', className);
+    img.src = url.href;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => img.remove(), { once: true });
+    return img;
+  }
+
   function cardHeader(data) {
     const head = node('div', 'card-head');
     if (data.icon) head.append(icon(data.icon, 'card-icon'));
@@ -243,6 +257,8 @@
       const list = node('ul', 'result-list');
       for (const item of data.items) {
         const entry = node('li');
+        const thumb = remoteImage(item.imageUrl, 'list-thumb');
+        if (thumb) entry.append(thumb);
         const text = node('div');
         text.append(node('b', '', item.title), node('span', 'mut', item.detail));
         entry.append(text);
@@ -266,18 +282,8 @@
       for (const text of data.chips) if (typeof text === 'string') chips.append(node('span', 'tag', text));
       card.append(chips);
     }
-    if (data.imageUrl) {
-      const url = safeURL(data.imageUrl);
-      if (url) {
-        const img = node('img', 'result-image');
-        img.src = url.href;
-        img.alt = '';
-        img.loading = 'lazy';
-        img.referrerPolicy = 'no-referrer';
-        img.addEventListener('error', () => img.remove(), { once: true });
-        card.prepend(img);
-      }
-    }
+    const image = remoteImage(data.imageUrl, 'result-image');
+    if (image) card.prepend(image);
     if (data.type === 'product' && typeof data.productId === 'string' && data.productId) {
       const button = node('button', 'sbtn', 'Buy');
       button.type = 'button';
@@ -889,11 +895,27 @@
     if (!viewport) return;
     document.documentElement.style.setProperty('--app-height', `${Math.round(viewport.height)}px`);
     if (viewport.offsetTop) window.scrollTo(0, 0);
-    if (mode === 'typing') scrollToLatest();
   }
   window.visualViewport?.addEventListener('resize', fitViewport);
   window.visualViewport?.addEventListener('scroll', fitViewport);
   fitViewport();
+
+  // Keep the newest message in view while the chat area shrinks or grows (keyboard, dock modes),
+  // unless the person scrolled up to read older messages.
+  const PIN_DISTANCE = 80;
+  let pinnedToLatest = true;
+  let chatHeight = chat.clientHeight;
+  chat.addEventListener('scroll', () => {
+    if (chat.clientHeight !== chatHeight) return; // Caused by the resize, not by the person scrolling.
+    pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
+  }, { passive: true });
+  // Watch both the chat area (keyboard, dock modes) and its content (card photos loading, streamed text).
+  const keepPinned = new ResizeObserver(() => {
+    chatHeight = chat.clientHeight;
+    if (pinnedToLatest) chat.scrollTop = chat.scrollHeight;
+  });
+  keepPinned.observe(chat);
+  keepPinned.observe(log);
 
   window.addEventListener('hashchange', route);
   enableEdgeSwipe();

@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import re
 import uuid
 from base64 import b64encode
 from contextlib import asynccontextmanager, suppress
@@ -100,20 +101,56 @@ class MealEstimate(BaseModel):
     uncertainty: str = Field(max_length=240)
 
 
+def bucket_client(region, endpoint, addressing_style):
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        "s3", region_name=region, endpoint_url=endpoint,
+        config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style},
+                      connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 2}),
+    )
+
+
+def image_slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", str(text).casefold()).strip("-")[:80]
+
+
+class BucketImages:
+    """Menu and restaurant pictures uploaded to the bucket as dishes/<slug>.jpg and restaurants/<shop_id>.jpg."""
+
+    EXTENSIONS = ("jpg", "webp", "png")
+
+    def __init__(self, bucket, client):
+        self.bucket, self.client = bucket, client
+        self.found = set()  # Hits only: a picture uploaded later shows up without a restart.
+
+    def _signed(self, key):
+        if key not in self.found:
+            try:
+                self.client.head_object(Bucket=self.bucket, Key=key)
+            except Exception:
+                return None
+            self.found.add(key)
+        return self.client.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key},
+                                                  ExpiresIn=3600)
+
+    async def find(self, folder, name):
+        stem = image_slug(name)
+        if not stem:
+            return None
+        for extension in self.EXTENSIONS:
+            url = await asyncio.to_thread(self._signed, f"{folder}/{stem}.{extension}")
+            if url:
+                return url
+        return None
+
+
 class MealPhotos:
     def __init__(self, bucket, region, endpoint, addressing_style, model):
         self.bucket = bucket
         self.model = model
-        self.client = None
-        if bucket:
-            import boto3
-            from botocore.config import Config
-
-            self.client = boto3.client(
-                "s3", region_name=region, endpoint_url=endpoint,
-                config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style},
-                              connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 2}),
-            )
+        self.client = bucket_client(region, endpoint, addressing_style) if bucket else None
 
     async def read(self, image, key):
         from openai import AsyncOpenAI

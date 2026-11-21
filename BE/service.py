@@ -17,10 +17,10 @@ RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
 
 
 class Zippy:
-    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos, push=None):
+    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos, push=None, images=None):
         self.store, self.clock, self.health = store, clock, health
         self.shopee, self.prompts, self.coach = shopee, prompts, coach
-        self.phone, self.photos, self.push = phone, photos, push
+        self.phone, self.photos, self.push, self.images = phone, photos, push, images
         self.tasks = set()
         self.chat_locks = defaultdict(asyncio.Lock)
         self.mutation = asyncio.Lock()
@@ -139,10 +139,11 @@ class Zippy:
                         by_shop.setdefault(place["shop_id"], {
                             "shop_id": place["shop_id"], "name": place["name"], "dish": dish["name"],
                             "protein_g": protein, "price_thb": dish["price_thb"], "distance_km": place["distance_km"],
+                            **({"stock_image_url": place["image_url"]} if place.get("image_url") else {}),
                         })
                 places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
-                session["places"] = places[:3]
-                items = [{"card": {"kind": "meal", **dinner}}]
+                session["places"] = [await self.with_image(place, "restaurants", place["shop_id"]) for place in places[:3]]
+                items = [{"card": {"kind": "meal", **await self.with_image(dinner, "dishes", dinner["dish"])}}]
                 if places:
                     session["pending"] = "walk"
                     nearby = "I found one place nearby." if len(places) == 1 else f"I found {len(session['places'])} places. {places[0]['name']} has the most protein."
@@ -243,6 +244,11 @@ class Zippy:
             yield {"type": "delta", "text": f"You've logged {today['totals']['protein_g']} g of protein and {today['totals']['kcal']:,} kcal today."}
         else:
             yield {"type": "delta", "text": "You can ask me about last night's sleep, today's activity, or your meals."}
+
+    async def with_image(self, record, folder, name):
+        """A copy of the record with a bucket picture when one is uploaded, keeping any image it already has."""
+        url = await self.images.find(folder, name) if self.images else None
+        return {**record, "image_url": url} if url else record
 
     def recap_answer(self, answer):
         """Rule-based follow-ups to the weekly recap, built from the imported history."""

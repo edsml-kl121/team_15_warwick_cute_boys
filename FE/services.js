@@ -81,6 +81,17 @@
     carbs_g: ['Carbs', n => amount(n, 'g')], fat_g: ['Fat', n => amount(n, 'g')],
   };
 
+  // Bundled photos for the scripted demo, used only when the backend sends no picture.
+  const LOCAL_IMAGES = {
+    'grilled chicken salad': './assets/chicken-salad.webp',
+    'easy health': './assets/easy-health.webp',
+    'salad factory': './assets/salad-factory.webp',
+  };
+  const localImage = name => {
+    const key = String(name || '').toLowerCase();
+    return Object.entries(LOCAL_IMAGES).find(([match]) => key.startsWith(match))?.[1] || null;
+  };
+
   function productCards(data) {
     const products = data.products || [];
     const more = data.more?.count > 0 && Array.isArray(data.more.price_range)
@@ -116,6 +127,7 @@
             title: place.name,
             detail: [place.dish, amount(place.price_thb, 'THB'), amount(place.distance_km, 'km')].filter(Boolean).join(' · '),
             value: amount(place.protein_g, 'g protein'),
+            imageUrl: place.image_url || localImage(place.name) || place.stock_image_url,
           })), note: 'Menus and nutrition from Shopee Food' }];
       case 'sleep_insight':
         return [{ title: 'Deep sleep', icon: 'bedtime', value: duration(data.deep_minutes),
@@ -127,6 +139,7 @@
           note: [data.source, data.minutes && `${duration(data.minutes)} asleep`, data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
       case 'meal':
         return [{ title: data.dish, icon: 'restaurant', value: amount(data.protein_g, 'g protein'), description: data.why,
+          imageUrl: data.image_url || localImage(data.dish),
           rows: [row('Energy', amount(data.kcal, 'kcal'))] }];
       case 'activity':
         return [{ title: 'Steps today', icon: 'directions_walk', value: amount(data.steps, '')?.trim(),
