@@ -64,6 +64,10 @@
   const voice = window.createZippyVoice({
     transcribe: service.transcribe,
     onState: updateVoiceState,
+    // Send hands-free once the speaker pauses; tapping the waveform still sends right away.
+    onPause() {
+      if (voiceState === 'listening' && voiceText.trim()) finishVoice();
+    },
     onTranscript(text) {
       voiceText = text.slice(0, 1500);
       transcript.textContent = voiceText;
