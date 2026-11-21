@@ -73,6 +73,12 @@
   window.createZippyPages = ({ service, showFeedback, onPhoto, onVoice }) => {
     const root = document.querySelector('.ph');
     const consent = document.querySelector('.consent-dialog');
+    const mealPhoto = document.querySelector('.meal-photo-dialog');
+    const previewImage = mealPhoto.querySelector('img');
+    const previewStatus = mealPhoto.querySelector('[role="status"]');
+    previewImage.addEventListener('load', () => { previewImage.hidden = false; });
+    previewImage.addEventListener('error', () => { previewStatus.hidden = false; });
+    mealPhoto.addEventListener('close', () => previewImage.removeAttribute('src'));
     let renderId = 0;
     let foodDate = null;
     let baseDate = null;
@@ -169,10 +175,47 @@
       shopee_food: ['storefront', meal => ['Shopee Food', meal.place].filter(Boolean).join(' · ')],
     };
 
+    function mealThumb(meal) {
+      const placeholder = icon(meal.source === 'photo' ? 'photo_camera' : 'restaurant', 'font-size:20px');
+      if (typeof meal.photo_url !== 'string' || !meal.photo_url.trim()) {
+        return h('span', { class: 'meal-thumb' }, placeholder);
+      }
+
+      let url;
+      try { url = new URL(meal.photo_url, location.href); } catch { /* Keep the placeholder. */ }
+      if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.origin === location.origin))) {
+        return h('span', { class: 'meal-thumb' }, placeholder);
+      }
+
+      const label = meal.dish || 'Logged meal';
+      const thumbnail = h('button', {
+        class: 'meal-thumb meal-thumb-button', type: 'button',
+        'aria-label': `View meal photo: ${label}`, disabled: true,
+        onclick: () => {
+          mealPhoto.querySelector('h2').textContent = label;
+          previewImage.hidden = true;
+          previewStatus.hidden = true;
+          previewImage.alt = label;
+          previewImage.src = url.href;
+          mealPhoto.showModal();
+        },
+      }, placeholder);
+      thumbnail.append(h('img', {
+        alt: '', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer',
+        onload: event => {
+          event.target.classList.add('loaded');
+          thumbnail.disabled = false;
+        },
+        onerror: event => event.target.remove(),
+        src: url.href,
+      }));
+      return thumbnail;
+    }
+
     function mealRow(meal) {
       const [sourceIcon, sourceText] = MEAL_SOURCES[meal.source] || MEAL_SOURCES.chat;
       return h('div', { class: 'gr' },
-        h('span', { class: 'meal-thumb' }, icon(meal.source === 'photo' ? 'photo_camera' : 'restaurant', 'font-size:20px')),
+        mealThumb(meal),
         h('span', { class: 'meal-text' },
           h('span', { class: 'mut small', text: `${meal.meal} · ${meal.time}` }),
           h('b', { text: meal.dish }),

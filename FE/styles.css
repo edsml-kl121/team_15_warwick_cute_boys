@@ -180,6 +180,9 @@ button:disabled { cursor: wait; opacity: .65; }
 .history-list { list-style: none; overflow: auto; margin: 0; padding: 0; }
 .history-chat { width: 100%; display: block; padding: 11px 12px; border: 0; background: transparent; border-radius: 12px; color: inherit; font-weight: 600; text-align: left; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
 .history-chat:hover, .history-chat[aria-current="true"] { background: #e7eee9; }
+.visitor-actions { display: grid; gap: 6px; }
+.visitor-actions a { text-decoration: none; }
+.visitor-actions p { margin: 0; }
 
 .order-dialog { width: min(360px, calc(100% - 28px)); padding: 17px; border: 1px solid #ebe9e2; border-radius: 24px; background: #fbfaf7; color: #151c27; }
 .order-dialog::backdrop { background: #151c2759; }
@@ -281,6 +284,15 @@ button:disabled { cursor: wait; opacity: .65; }
 .macro .bar { flex: 1; }
 .macro .num { flex: 0 0 76px; text-align: right; font-size: 12px; }
 .meal-thumb { width: 44px; height: 44px; border-radius: 12px; background: #efdfce; display: grid; place-items: center; color: #404945; flex: none; }
+.meal-thumb-button { position: relative; border: 0; padding: 0; overflow: hidden; }
+.meal-thumb-button:disabled { opacity: 1; cursor: default; }
+.meal-thumb-button img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.meal-thumb-button img.loaded { opacity: 1; }
+.meal-photo-dialog { width: min(390px, calc(100% - 28px)); padding: 16px; border: 1px solid #ebe9e2; border-radius: 24px; background: #fbfaf7; color: #151c27; }
+.meal-photo-dialog::backdrop { background: #151c2759; }
+.meal-photo-dialog form { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.meal-photo-dialog h2 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.meal-photo-dialog img { display: block; width: 100%; max-height: 65dvh; object-fit: contain; margin-top: 10px; border-radius: 14px; }
 .meal-thumb.dashed { background: transparent; border: 2px dashed #a7d7c5; color: #3a6758; }
 .meal-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .meal-text b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

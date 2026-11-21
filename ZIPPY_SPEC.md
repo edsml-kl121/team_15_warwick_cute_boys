@@ -138,6 +138,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 |---|---|
 | `GET /health` | Railway health check, returns `{"status":"ok"}` |
 | `GET /visitor`, `POST /visitor` | Check for a guest cookie or create a guest profile from a display name and optional food preferences and budget |
+| `DELETE /visitor` | Clear the active visitor cookie and return to guest setup. Stored records are retained. |
 | `GET /profile`, `PUT /profile` | Frontend reads or updates goals, preferences and connections |
 | `GET /persona`, `PUT /persona` | Frontend imports or reads the visitor's own health history. Import updates profile targets and the food log and feeds the coach's summary tool. |
 | `GET /today` | Frontend reads recovery, sleep, nutrition, activity and upcoming actions |

@@ -195,7 +195,10 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         assert "photo_url" not in image_doc
         assert client.get("/sessions/guest-chat").status_code == 404
         assert client.post("/demo/reset").is_success
-        client.cookies.delete("zippy_guest")
+        assert client.delete("/visitor", headers=guest_headers).json() == {"ready": False}
+        assert client.get("/visitor", headers=guest_headers).json() == {"ready": False}
+        assert client.get("/profile", headers=guest_headers).status_code == 401
+        assert client.get("/profile").json()["name"] == "Ploy"
         assert client.post("/visitor", headers=guest_headers, json={"name": "Pim"}).is_success
         assert client.get("/sessions", headers=guest_headers).json() == []
         assert client.get("/sessions/guest-chat", headers=guest_headers).status_code == 404

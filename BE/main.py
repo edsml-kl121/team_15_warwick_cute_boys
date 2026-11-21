@@ -226,7 +226,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                 mongo_client.close()
 
     app = FastAPI(title="Zippy", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=[settings.origin], allow_methods=["GET", "POST", "PUT"],
+    app.add_middleware(CORSMiddleware, allow_origins=[settings.origin], allow_methods=["GET", "POST", "PUT", "DELETE"],
                        allow_headers=["Authorization", "Content-Type", "X-Zippy-Demo"])
 
     async def auth(authorization: str = Header(default="")):
@@ -265,6 +265,14 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         demo = visitor_mode(request)
         zippy = request.app.state.open_visitor(visitor_id(request, demo), demo=demo)
         return {"ready": zippy is not None}
+
+    @app.delete("/visitor", dependencies=protected)
+    async def leave_visitor(request: Request, response: Response):
+        response.delete_cookie(
+            visitor_cookie(visitor_mode(request)), httponly=True, samesite="lax",
+            secure=settings.secure_cookies or request.url.scheme == "https",
+        )
+        return {"ready": False}
 
     @app.post("/visitor", dependencies=protected)
     async def start_visitor(request: Request, response: Response, body: Onboarding | None = None):

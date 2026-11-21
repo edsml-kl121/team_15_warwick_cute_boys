@@ -119,6 +119,11 @@
         <button type="button" class="chip" data-action="demo-reset">Reset demo</button>
         <a class="chip presenter-link" href="./presenter.html" target="_blank" rel="noopener">Open presenter dashboard</a>
       </details>
+      <div class="visitor-actions">
+        <a class="btn2 demo-exit" href="./" hidden>Leave Ploy demo</a>
+        <button class="btn2 guest-exit" type="button" data-action="leave-guest" hidden>Leave guest session</button>
+        <p class="mut guest-exit-status" role="status" hidden></p>
+      </div>
     </aside>
   </dialog>
   <dialog class="onboarding-dialog" aria-labelledby="onboarding-title">
@@ -133,6 +138,7 @@
     <p class="onboarding-status mut" role="status" hidden></p>
     <button class="btn2 onboarding-retry" type="button" hidden>Try again</button>
     <a class="chip demo-entry" href="./?demo=ploy">Open Ploy demo</a>
+    <a class="chip demo-exit" href="./" hidden>Leave Ploy demo</a>
   </dialog>
   <input type="file" id="meal-photo" accept="image/*" hidden>
   <dialog class="scan-dialog" aria-labelledby="scan-title">
@@ -177,6 +183,16 @@
       <p class="mut consent-note"><i class="material-icons" aria-hidden="true">lock</i>Read-only. You can turn any of these off or disconnect at any time.</p>
       <div class="consent-actions"><button type="submit" class="btn" value="allow">Allow</button><button type="submit" class="btn2" value="cancel">Not now</button></div>
     </form>
+  </dialog>
+  <dialog class="meal-photo-dialog" aria-labelledby="meal-photo-title">
+    <form method="dialog">
+      <h2 id="meal-photo-title">Meal photo</h2>
+      <button type="submit" class="ib" aria-label="Close meal photo">
+        <i class="material-icons" aria-hidden="true">close</i>
+      </button>
+    </form>
+    <img alt="" referrerpolicy="no-referrer" hidden>
+    <p class="mut" role="status" hidden>Couldn’t load this meal photo.</p>
   </dialog>
   <p id="feedback" role="status"></p>
   <noscript>Zippy needs JavaScript to open the chat.</noscript>

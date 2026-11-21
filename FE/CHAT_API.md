@@ -8,6 +8,8 @@ The chat client defaults to `./api/`. Caddy strips the `/api` prefix before forw
 
 First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Submit `POST /visitor` with a display `name`, optional `food` and optional `budget_thb`. The backend sets a same-origin HTTP-only cookie. Open `/?demo=ploy` for the Ploy scenario. The frontend sets the `X-Zippy-Demo: 1` header and the backend issues a separate demo cookie.
 
+**Leave Ploy demo** opens the guest URL and resumes the guest cookie if present. **Leave guest session** sends `DELETE /visitor` to clear the active HTTP-only cookie and return to setup. The backend retains the old guest records. A display name cannot restore access to a previous guest profile.
+
 ## Chat and shopping
 
 1. Accept `POST /chat` with `{session_id, message}`. The browser generates a conversation ID and the guest cookie scopes it to its owner. Return `application/x-ndjson` and finish with a `done` or `error` event. On return, `GET /sessions` lists conversations and `GET /sessions/{id}` returns ordered chat turns, cards and feed events with `last_feed_id` for polling.
@@ -59,7 +61,7 @@ Browser speech recognition supplies interim words where supported. Optionally se
 
 The camera uses `POST /food-log/photo?session_id=…&stream=true` with multipart `file`. The response streams NDJSON events with `type: "progress"` and `stage: "analyzing"` or `"saving"`. A terminal `done` event carries the saved `meal`, including per-food `items` and an `uncertainty` note. A terminal `error` event carries a user-facing `message`. Clients that omit `stream` receive the saved meal as regular JSON. The backend adds the summary to the session feed when it logs the meal.
 
-MongoDB holds the meal and its image key when an image is stored. The Food Log response includes a freshly signed `photo_url` when an image is available.
+MongoDB holds the meal and its image key when an image is stored. The Food Log response includes a freshly signed `photo_url` when an image is available. The frontend uses it for the thumbnail and full photo and keeps the meal icon when no image can load.
 
 ## Integration acceptance
 
