@@ -278,26 +278,30 @@ Starlette `TestClient.websocket_connect` uses host `testserver`. End the stream 
 
 ### Backend
 
+For local development, copy [`BE/.env.example`](BE/.env.example) to `BE/.env`. The example targets the Shopee simulator at `https://shopee-sim-production.up.railway.app/mcp`. Use the same endpoint for `SHOPEE_MCP_URL` in Railway unless deliberately testing a different simulator. Set the shared production token in Railway Backend → Variables. Keep local listen settings in the local environment and use Railway's injected port.
+
 | Variable | Requirement or default |
 |---|---|
-| `OPENAI_API_KEY` | Required |
-| `API_TOKEN` | Required shared token for frontend, cron and demo routes |
-| `FRONTEND_ORIGIN` | Required allowed CORS origin |
-| `SHOPEE_MCP_URL` | Required simulator endpoint |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Required upgraded account |
-| `TWILIO_PHONE_NUMBER` | Required outbound caller ID |
-| `TWILIO_PUBLIC_BASE_URL` | Required public HTTPS origin with no path |
+| `OPENAI_API_KEY` | Enables free-form chat and is required for live calls and meal photo analysis |
+| `API_TOKEN` | Shared secret for frontend, cron and demo routes. Required on Railway. Local example uses `local-zippy`. |
+| `FRONTEND_ORIGIN` | Allowed CORS origin. Defaults to `http://localhost:3000` for local development. |
+| `SHOPEE_MCP_URL` | Simulator endpoint. Use the URL in `BE/.env.example`. |
+| `LIVE_CALLS` | Defaults to `0` for simulated calls. Set to `1` to enable Twilio. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Required for live calls on an upgraded account |
+| `TWILIO_PHONE_NUMBER` | Outbound caller ID for live calls |
+| `TWILIO_PUBLIC_BASE_URL` | Public HTTPS origin for Twilio callbacks, with no path |
+| `TWILIO_VERIFIED_TEST_NUMBERS` | Comma-separated team-owned E.164 numbers. The simulator listing must match. |
 | `RING_TIMEOUT_SECONDS` | Optional, default 40 |
 | `CALL_LANGUAGE` | Optional starting language, e.g. English or Thai |
 | `TRANSCRIPTION_LANGUAGES` | Optional, default `en,th` |
 | `REALTIME_MODEL`, `REALTIME_VOICE` | Optional, default `gpt-realtime-2.1` and the model's voice |
 | `MAX_CALL_SECONDS` | Optional, default 300 |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | For images |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | For images. Use `AWS_SESSION_TOKEN` with temporary credentials. |
 | `HEALTH_PROVIDER` | Optional, `demo` by default or `whoop` |
 | `WHOOP_*` | OAuth client ID, secret and refresh token for the stretch integration |
 | `DATA_DIR` | Optional, defaults to `./data` |
 | `DEMO_NOW` | Optional pinned clock, e.g. `2026-11-21T07:02:00+07:00` |
-| `PORT` | Optional, defaults to 8000. Railway sets it. |
+| `HOST`, `PORT` | Local example listens on `127.0.0.1:8080`. Railway's backend image binds to `0.0.0.0` by default and reads Railway's `PORT`. |
 
 Frontend and cron use `BACKEND_URL` and `API_TOKEN`. GitHub Actions uses the `RAILWAY_TOKEN` secret. Restaurant phone numbers come from the simulator.
 
