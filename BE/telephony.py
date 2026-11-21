@@ -22,8 +22,23 @@ class DemoPhone:
         await service.finish_call(booking["id"], "booked", 34)
 
 
+def requested(booking):
+    """The visitor's request for this call; bookings made before requests were recorded get a plain one."""
+    return booking.get("request") or f"a table for {booking['party_size']} at {booking['time']}"
+
+
+class PreparedCall:
+    """A phone agent whose Realtime session is open and whose greeting is already being generated."""
+
+    def __init__(self, session, end_requested, tracker):
+        self.session, self.end_requested, self.tracker = session, end_requested, tracker
+
+    async def close(self):
+        await self.session.close()
+
+
 class TwilioPhone:
-    def __init__(self, account, token, caller_id, public_url, verified_numbers, ring_timeout, max_seconds):
+    def __init__(self, account, token, caller_id, public_url, verified_numbers, ring_timeout, max_seconds, realtime=None):
         from twilio.request_validator import RequestValidator
         from twilio.rest import Client
 
@@ -37,6 +52,22 @@ class TwilioPhone:
         self.verified_numbers = verified_numbers
         self.ring_timeout = ring_timeout
         self.max_seconds = max_seconds
+        self.realtime = realtime
+        self.prepared = {}
+
+    async def take(self, booking_id):
+        """Hand the agent prepared while ringing to the connected call, or None to prepare one now."""
+        task = self.prepared.pop(booking_id, None)
+        try:
+            return await task if task else None
+        except Exception:
+            return None
+
+    async def discard(self, booking_id):
+        """Close an agent that was prepared for a call nobody answered."""
+        prepared = await self.take(booking_id)
+        if prepared:
+            await prepared.close()
 
     def validate(self, phone):
         if not re.fullmatch(r"\+[1-9][0-9]{7,14}", phone) or phone not in self.verified_numbers:
@@ -46,6 +77,9 @@ class TwilioPhone:
         from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
         self.validate(booking["phone"])
+        if self.realtime:
+            # Open the Realtime session and generate the greeting while the phone rings.
+            self.prepared[booking["id"]] = asyncio.create_task(self.realtime.prepare(booking))
         response = VoiceResponse()
         connect = Connect()
         stream = Stream(url=self.media_url)
@@ -54,12 +88,18 @@ class TwilioPhone:
         connect.append(stream)
         response.append(connect)
         query = urlencode({"booking_id": booking["id"]})
-        call = await asyncio.to_thread(
-            self.client.calls.create, to=booking["phone"], from_=self.caller_id, twiml=str(response),
-            timeout=self.ring_timeout, machine_detection="Enable",
-            status_callback=f"{self.public_url}/call-status?{query}",
-            status_callback_event=["completed"], status_callback_method="POST", time_limit=self.max_seconds,
-        )
+        # Asynchronous AMD connects the audio stream at pickup; the verdict arrives later at /call-amd.
+        try:
+            call = await asyncio.to_thread(
+                self.client.calls.create, to=booking["phone"], from_=self.caller_id, twiml=str(response),
+                timeout=self.ring_timeout, machine_detection="Enable", async_amd="true",
+                async_amd_status_callback=f"{self.public_url}/call-amd?{query}", async_amd_status_callback_method="POST",
+                status_callback=f"{self.public_url}/call-status?{query}",
+                status_callback_event=["completed"], status_callback_method="POST", time_limit=self.max_seconds,
+            )
+        except BaseException:
+            await self.discard(booking["id"])
+            raise
         booking["call_sid"] = call.sid
         service.store.save()
 
@@ -94,7 +134,7 @@ class RealtimeFactory:
 
         instructions = self.prompts.render("phone.rules", language=self.language) + "\n" + self.prompts.render(
             "phone.book_table", restaurant_name=booking["restaurant_name"],
-            party_size=booking["party_size"], time=booking["time"], name=booking["name"],
+            party_size=booking["party_size"], time=booking["time"], name=booking["name"], request=requested(booking),
         )
         agent = RealtimeAgent(name="Book a table", instructions=instructions, tools=[report_booking_result, end_call])
         output = {"format": "g711_ulaw"}
@@ -107,15 +147,32 @@ class RealtimeFactory:
         }}})
         return await runner.run(model_config={"playback_tracker": tracker})
 
+    async def prepare(self, booking):
+        """Connect to Realtime and start the greeting; its audio queues until the call connects."""
+        from agents.realtime.model import RealtimePlaybackTracker
+        from agents.realtime.model_inputs import RealtimeModelSendRawMessage
+
+        end_requested, tracker = asyncio.Event(), RealtimePlaybackTracker()
+        session = await self.open(booking, end_requested, tracker)
+        await session.enter()
+        greeting = self.prompts.render("phone.greeting", restaurant_name=booking["restaurant_name"],
+                                       name=booking["name"], request=requested(booking))
+        try:
+            await session.model.send_event(RealtimeModelSendRawMessage(
+                {"type": "response.create", "other_data": {"response": {"instructions": greeting}}}))
+        except BaseException:
+            await session.close()
+            raise
+        return PreparedCall(session, end_requested, tracker)
+
 
 async def bridge(socket, service, factory, booking, start):
-    from agents.realtime.model import RealtimePlaybackTracker
-    from agents.realtime.model_inputs import RealtimeModelSendRawMessage
     from starlette.websockets import WebSocketDisconnect
 
     stream_id, call_sid = start["streamSid"], start["callSid"]
-    tracker = RealtimePlaybackTracker()
-    end_requested = asyncio.Event()
+    service.call_connected(booking["id"])
+    call = (await service.phone.take(booking["id"]) if hasattr(service.phone, "take") else None) or await factory.prepare(booking)
+    tracker, end_requested = call.tracker, call.end_requested
     audio = asyncio.Queue(maxsize=250)
     marks = {}
     numbers = itertools.count()
@@ -178,16 +235,14 @@ async def bridge(socket, service, factory, booking, start):
         service.store.save()
         await service.phone.hang_up(call_sid)
 
-    service.call_connected(booking["id"])
-    session = await factory.open(booking, end_requested, tracker)
-    async with session:
-        await session.model.send_event(RealtimeModelSendRawMessage({"type": "response.create"}))
-        tasks = [asyncio.create_task(task) for task in (receive(), relay(session), play(session), hang_up())]
-        try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                task.result()
-        finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+    session = call.session
+    tasks = [asyncio.create_task(task) for task in (receive(), relay(session), play(session), hang_up())]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await call.close()

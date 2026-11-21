@@ -21,7 +21,7 @@ From the repository root, run `docker compose build backend` to verify the conta
 
 On Railway, set a separate shared `API_TOKEN` in Backend → Variables and give the frontend server the same value. Set `FRONTEND_ORIGIN` to the deployed frontend's origin. Use Railway's injected `PORT` and the backend image's default listen address. The local `.env` stays out of Git and the Docker image.
 
-Use `DEMO_NOW` to set the starting clock in Bangkok. The default is 07:02 on 21 November 2026. The demo reset only cancels unpaid orders created in that run.
+The clock uses the real time in Bangkok. Set `DEMO_NOW`, for example to `2026-11-21T07:02:00+07:00`, to pin it for a rehearsal. The demo reset only cancels unpaid orders created in that run.
 
 ## Guest storage on Railway
 

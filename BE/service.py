@@ -127,21 +127,7 @@ class Zippy:
                 values = {"protein_g": protein, "protein_goal": goal, "protein_gap": max(0, goal - protein)}
                 kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
                 dinner = pick_meal(self.state.get("persona"), values["protein_gap"], kcal_left, DINNER)
-                places = await self.shopee.call("find_similar_dishes", dish=dinner["dish"],
-                                                calories=dinner["kcal"], protein_g=dinner["protein_g"], limit=35)
-                budget = self.state["profile"]["preferences"]["budget_thb"]
-                by_shop = {}
-                for result in places:
-                    place = result.get("restaurant", result)
-                    dish = result.get("item", result)
-                    protein = dish.get("nutrition", dish).get("protein_g")
-                    if protein is not None and dish["price_thb"] <= budget:
-                        by_shop.setdefault(place["shop_id"], {
-                            "shop_id": place["shop_id"], "name": place["name"], "dish": dish["name"],
-                            "protein_g": protein, "price_thb": dish["price_thb"], "distance_km": place["distance_km"],
-                        })
-                places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
-                session["places"] = places[:3]
+                places = await self.find_places(session_id, dinner["dish"], dinner["kcal"], dinner["protein_g"])
                 items = [{"card": {"kind": "meal", **dinner}}]
                 if places:
                     session["pending"] = "walk"
@@ -173,6 +159,24 @@ class Zippy:
                 "title": TITLES[moment],
                 "body": notification,
             }}, *items)
+
+    async def find_places(self, session_id, dish, calories=None, protein_g=None):
+        """Find nearby Shopee Food places for a dish within budget and remember the top three for booking."""
+        results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
+        budget = self.state["profile"]["preferences"]["budget_thb"]
+        by_shop = {}
+        for result in results:
+            place = result.get("restaurant", result)
+            item = result.get("item", result)
+            protein = item.get("nutrition", item).get("protein_g")
+            if protein is not None and item["price_thb"] <= budget:
+                by_shop.setdefault(place["shop_id"], {
+                    "shop_id": place["shop_id"], "name": place["name"], "dish": item["name"],
+                    "protein_g": protein, "price_thb": item["price_thb"], "distance_km": place["distance_km"],
+                })
+        places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
+        self.session(session_id)["places"] = places[:3]
+        return places
 
     async def chat(self, session_id, message):
         session = self.session(session_id)
@@ -348,19 +352,24 @@ class Zippy:
                 item["card"] = reminder["route"]
             self.emit(reminder["session_id"], item)
 
-    async def book(self, session_id, shop_id):
+    async def book(self, session_id, shop_id, time="19:00", party_size=1, request=None):
         async with self.mutation:
             if any(item["status"] in {"calling", "in_call"} for item in self.state["bookings"].values()):
                 raise ValueError("A booking call is already in progress.")
             listing = next((item for item in self.session(session_id)["places"] if item["shop_id"] == shop_id), None)
             if listing is None:
-                raise ValueError("Choose a restaurant from the dinner suggestions first.")
+                raise ValueError("Choose a restaurant from the suggested places first.")
+            if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", time) or not 1 <= party_size <= 20:
+                raise ValueError("Give the time as HH:MM and a party size from 1 to 20.")
+            if time <= self.now().strftime("%H:%M"):
+                raise ValueError("That time has already passed today. Choose a later time.")
             place = await self.shopee.call("get_menu", shop_id=shop_id)
             self.phone.validate(place.get("phone", ""))
             booking_id = uuid.uuid4().hex
             booking = {
                 "id": booking_id, "shop_id": shop_id, "restaurant_name": place["name"], "phone": place.get("phone", ""),
-                "party_size": 1, "time": "19:00", "name": self.state["profile"]["name"], "status": "calling",
+                "party_size": party_size, "time": time, "name": self.state["profile"]["name"], "status": "calling",
+                "request": (request or f"a table for {party_size} at {time}").strip()[:300],
                 "call_sid": None, "duration_s": None, "quote": None, "created_at": self.now().isoformat(),
                 "session_id": session_id, "distance_km": listing["distance_km"],
                 "maps_query": place.get("address") or f"{place['name']} Bangkok",
@@ -383,6 +392,8 @@ class Zippy:
             self.emit(booking["session_id"], {"header_status": "in_call"})
 
     async def finish_call(self, booking_id, status, duration=None):
+        if hasattr(self.phone, "discard"):
+            await self.phone.discard(booking_id)
         async with self.mutation:
             booking = self.state["bookings"].get(booking_id)
             if not booking or booking["status"] not in {"calling", "in_call"}:

@@ -1,12 +1,25 @@
+import asyncio
+import base64
 import json
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from types import SimpleNamespace
 
 import mongomock
+from agents.tool_context import ToolContext
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from twilio.request_validator import RequestValidator
 
+from demo import Clock
+from integrations import AgentsCoach
 from main import Settings, create_app
 from storage import COLLECTIONS
+from telephony import TwilioPhone
+
+TWILIO_TOKEN = "twilio-test-token"
+PUBLIC_URL = "https://calls.example.test"
 
 
 class FakeShopee:
@@ -59,6 +72,64 @@ class FakePhone:
             await service.finish_call(booking["id"], "booked", 34)
 
 
+class FakeTwilioClient:
+    """Stands in for twilio.rest.Client: records requests instead of dialing."""
+
+    def __init__(self):
+        self.created, self.hung_up = [], []
+        client = self
+
+        class Calls:
+            def create(self, **request):
+                client.created.append(request)
+                return SimpleNamespace(sid="CA-test")
+
+            def __call__(self, sid):
+                return SimpleNamespace(update=lambda **change: client.hung_up.append((sid, change)))
+
+        self.calls = Calls()
+
+
+class FakeRealtime:
+    """Stands in for RealtimeFactory: every prepared phone agent already has its greeting audio ready."""
+
+    def __init__(self):
+        self.prepared, self.closed = [], []
+
+    async def prepare(self, booking):
+        self.prepared.append(booking["id"])
+        return FakePreparedCall(self, booking["id"])
+
+
+class FakePreparedCall:
+    def __init__(self, factory, booking_id):
+        self.factory, self.booking_id = factory, booking_id
+        self.end_requested = asyncio.Event()
+        self.tracker = SimpleNamespace(on_play_bytes=lambda *played: None)
+        self.session = self
+
+    async def send_audio(self, data):
+        pass
+
+    async def __aiter__(self):
+        yield SimpleNamespace(type="audio", audio=SimpleNamespace(data=b"greeting"), item_id="item-1", content_index=0)
+        await asyncio.Event().wait()
+
+    async def close(self):
+        self.factory.closed.append(self.booking_id)
+
+
+def twilio_phone(**options):
+    phone = TwilioPhone("AC-test", TWILIO_TOKEN, "+19999999999", PUBLIC_URL, {"+10000000000"}, 40, 300, **options)
+    phone.client = FakeTwilioClient()
+    return phone
+
+
+def twilio_post(client, phone, path, **fields):
+    signature = RequestValidator(TWILIO_TOKEN).compute_signature(phone.public_url + path, fields)
+    return client.post(path, data=fields, headers={"X-Twilio-Signature": signature})
+
+
 class FakePhotos:
     async def read(self, image, key):
         assert key.startswith("meals/") and key.endswith(".jpg")
@@ -74,8 +145,10 @@ class FakePhotos:
 
 
 @contextmanager
-def demo(tmp_path, **options):
+def demo(tmp_path, pinned=True, **options):
     settings = Settings()
+    if pinned:
+        settings.demo_now = "2026-11-21T07:02:00+07:00"
     settings.token = "test-token"
     settings.directory = tmp_path
     settings.use_ai = False
@@ -83,7 +156,8 @@ def demo(tmp_path, **options):
     settings.secure_cookies = False
     fake = FakeShopee()
     options.setdefault("database", mongomock.MongoClient().zippy)
-    app = create_app(settings=settings, shopee=fake, phone=FakePhone(), photos=FakePhotos(), **options)
+    phone = options.pop("phone", None) or FakePhone()
+    app = create_app(settings=settings, shopee=fake, phone=phone, photos=FakePhotos(), **options)
     with TestClient(app, headers={"Authorization": "Bearer test-token", "X-Zippy-Demo": "1"}) as client:
         assert client.get("/today").status_code == 401
         assert client.post("/visitor").json() == {"ready": True}
@@ -100,6 +174,27 @@ def say(client, message):
 
 def cards(items):
     return [item["card"] for item in items if "card" in item]
+
+
+def visitor(client):
+    """The Ploy demo visitor's own Zippy, which the client's HTTP requests use."""
+    token = client.cookies.get("zippy_ploy")
+    return client.app.state.open_visitor("demo-" + sha256(token.encode()).hexdigest(), demo=True)
+
+
+def coach_tools(client, session_id="ploy"):
+    zippy = visitor(client)
+    shown = asyncio.Queue()
+    return {tool.name: tool for tool in AgentsCoach(zippy.prompts).tools(zippy, session_id, shown)}, shown
+
+
+def use_tool(client, tools, name, **arguments):
+    """Invoke a coach tool the way the Agents SDK does when the model calls it."""
+    payload = json.dumps(arguments)
+    context = ToolContext(context=None, tool_name=name, tool_call_id="call-1", tool_arguments=payload)
+    result = client.portal.call(tools[name].on_invoke_tool, context, payload)
+    client.portal.call(asyncio.sleep, 0.1)  # let the spawned call task finish
+    return result
 
 
 def test_sleep_and_checkout(tmp_path):
@@ -144,6 +239,171 @@ def test_dinner_then_retry_and_walk(tmp_path):
         assert client.get("/feed").json()[-1]["notify"]["title"] == "Time to go"
         assert client.post("/demo/trigger", json={"moment": "daily_summary"}).is_success
         assert cards(client.get("/feed").json())[-1]["kind"] == "daily_summary"
+
+
+def test_coach_finds_places_then_books_requested_time_and_party(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "find_similar_dishes", dish="grilled chicken")
+        places = shown.get_nowait()
+        assert places["kind"] == "places"
+        assert [place["name"] for place in places["places"]] == ["Easy Health", "Salad Factory", "Other"]
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="19:30", party_size=2,
+                 request="a table for 2 at 7:30 pm, by the window if possible")
+        booking = next(iter(visitor(client).state["bookings"].values()))
+        assert (booking["restaurant_name"], booking["time"], booking["party_size"]) == ("Salad Factory", "19:30", 2)
+        assert booking["request"] == "a table for 2 at 7:30 pm, by the window if possible"
+        assert booking["status"] == "booked"
+        route = next(card for card in cards(client.get("/feed").json()) if card["kind"] == "walk_route")
+        assert route["leave_by"] == "19:18"
+
+
+def test_coach_tells_model_which_places_it_can_book_on_later_turns(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "find_similar_dishes", dish="grilled chicken")
+        zippy = visitor(client)
+        history = [{"role": "user", "content": "Find a salad"}, {"role": "assistant", "content": "Easy Health is closest."}]
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "Book the first one", history)
+        assert turn[:2] == history
+        assert all(shop_id in json.dumps(turn[2:-1]) for shop_id in ("s_easy_health", "s_salad_factory", "s_other"))
+        assert turn[-1] == {"role": "user", "content": "Book the first one"}
+
+
+def test_coach_reminds_model_to_reply_in_english_right_before_each_message(tmp_path):
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "เมื่อคืนนอนเป็นยังไง", [])
+        assert turn[-1] == {"role": "user", "content": "เมื่อคืนนอนเป็นยังไง"}
+        assert turn[-2]["role"] == "developer" and "English" in turn[-2]["content"]
+
+
+def test_clock_follows_real_bangkok_time_when_not_pinned(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEMO_NOW", raising=False)
+    with demo(tmp_path, pinned=False) as (client, _):
+        now = datetime.fromisoformat(client.get("/today").json()["now"])
+        assert abs(now - datetime.now(timezone.utc)) < timedelta(minutes=1)
+        assert now.utcoffset() == timedelta(hours=7)
+
+
+def test_coach_is_told_the_current_time_every_turn(tmp_path):
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "Book a table in 30 minutes", [])
+        assert "2026-11-21 07:02" in json.dumps([item for item in turn if item["role"] == "developer"])
+
+
+def test_booking_a_time_that_already_passed_today_is_refused(tmp_path):
+    with demo(tmp_path, clock=Clock("2026-11-21T19:45:00+07:00")) as (client, _):
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "find_similar_dishes", dish="grilled chicken")
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="19:30", party_size=2,
+                 request="a table for 2 at 7:30 pm")
+        assert visitor(client).state["bookings"] == {}
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="20:15", party_size=2,
+                 request="a table for 2 at 8:15 pm")
+        assert [booking["time"] for booking in visitor(client).state["bookings"].values()] == ["20:15"]
+
+
+def test_coach_refuses_unlisted_restaurant_or_bad_booking_details(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_made_up", time="19:00", party_size=1)
+        use_tool(client, tools, "find_similar_dishes", dish="grilled chicken")
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="7pm", party_size=1)
+        use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="19:00", party_size=0)
+        assert visitor(client).state["bookings"] == {}
+        assert not any(name == "get_menu" for name, _ in simulator.calls)
+
+
+def book_dinner_call(client):
+    assert client.post("/demo/trigger", json={"moment": "dinner_tip"}).is_success
+    say(client, "Yes, I'll walk")
+    say(client, "Yes, book it")
+    client.portal.call(asyncio.sleep, 0.1)
+    return next(iter(visitor(client).state["bookings"].values()))
+
+
+def test_call_audio_starts_before_machine_detection_and_machines_are_hung_up(tmp_path):
+    phone = twilio_phone()
+    with demo(tmp_path, phone=phone) as (client, _):
+        booking = book_dinner_call(client)
+        request = phone.client.created[0]
+        assert (request["machine_detection"], request["async_amd"]) == ("Enable", "true")
+        assert request["async_amd_status_callback"] == f"{PUBLIC_URL}/call-amd?booking_id={booking['id']}"
+        amd = twilio_post(client, phone, f"/call-amd?booking_id={booking['id']}", CallSid="CA-test", AnsweredBy="machine_start")
+        assert amd.is_success
+        assert phone.client.hung_up == [("CA-test", {"status": "completed"})]
+        done = twilio_post(client, phone, f"/call-status?booking_id={booking['id']}",
+                           CallSid="CA-test", CallStatus="completed", CallDuration="6")
+        assert done.is_success
+        assert next(card for card in cards(client.get("/feed").json()) if card["kind"] == "call")["status"] == "no_answer"
+
+
+def test_human_answer_keeps_the_call_going(tmp_path):
+    phone = twilio_phone()
+    with demo(tmp_path, phone=phone) as (client, _):
+        booking = book_dinner_call(client)
+        amd = twilio_post(client, phone, f"/call-amd?booking_id={booking['id']}", CallSid="CA-test", AnsweredBy="human")
+        assert amd.is_success
+        assert phone.client.hung_up == []
+        assert visitor(client).state["bookings"][booking["id"]]["status"] == "calling"
+
+
+def test_phone_agent_is_ready_while_ringing_and_greets_as_soon_as_answered(tmp_path):
+    realtime = FakeRealtime()
+    phone = twilio_phone(realtime=realtime)
+    with demo(tmp_path, phone=phone, realtime=realtime) as (client, _):
+        booking = book_dinner_call(client)
+        assert realtime.prepared == [booking["id"]]
+        assert booking["request"] == "a table for 1 at 19:00"
+        signature =RequestValidator(TWILIO_TOKEN).compute_signature(phone.media_url, {})
+        with client.websocket_connect("/media-stream", headers={"X-Twilio-Signature": signature}) as twilio:
+            twilio.send_json({"event": "connected"})
+            twilio.send_json({"event": "start", "start": {"streamSid": "MZ-test", "callSid": "CA-test", "customParameters": {
+                "purpose": "book_table", "booking_id": booking["id"]}}})
+            first = twilio.receive_json()
+            assert first["event"] == "media" and base64.b64decode(first["media"]["payload"]) == b"greeting"
+            twilio.send_json({"event": "stop"})
+        client.portal.call(asyncio.sleep, 0.1)
+        assert realtime.prepared == [booking["id"]]
+        assert realtime.closed == [booking["id"]]
+
+
+def test_prepared_phone_agent_is_closed_when_nobody_answers(tmp_path):
+    realtime = FakeRealtime()
+    phone = twilio_phone(realtime=realtime)
+    with demo(tmp_path, phone=phone, realtime=realtime) as (client, _):
+        booking = book_dinner_call(client)
+        status = twilio_post(client, phone, f"/call-status?booking_id={booking['id']}", CallSid="CA-test", CallStatus="no-answer")
+        assert status.is_success
+        assert realtime.closed == [booking["id"]]
+
+
+def test_phone_agent_opens_by_introducing_zippy_and_the_booking():
+    from integrations import Prompts
+    from telephony import RealtimeFactory
+
+    sent = []
+
+    class Session:
+        model = SimpleNamespace(send_event=lambda event: asyncio.sleep(0, sent.append(event)))
+
+        async def enter(self):
+            return self
+
+    async def open_session(*_):
+        return Session()
+
+    factory = RealtimeFactory(Prompts(None), "realtime-test", None, "English", ["en"])
+    factory.open = open_session
+    request = "a table for 2 at 7:30 pm, by the window if possible"
+    asyncio.run(factory.prepare({"restaurant_name": "Salad Factory", "party_size": 2, "time": "19:30", "name": "Ploy",
+                                 "request": request}))
+    message = sent[0].message
+    assert message["type"] == "response.create"
+    greeting = message["other_data"]["response"]["instructions"]
+    assert all(detail in greeting for detail in ("Zippy", "Salad Factory", "Ploy", request))
 
 
 def test_photo_reset_and_access_checks(tmp_path):
