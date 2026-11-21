@@ -126,5 +126,45 @@
     "author": "NuCastiel",
     "license": "CC BY 2.0",
     "license_url": "https://creativecommons.org/licenses/by/2.0/"
+  },
+  "s_pala_pizza": {
+    "caption": "Roman-style pizza by the slice",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Pizza_al_taglio_1.jpg",
+    "author": "CCFoodTravel.com",
+    "license": "CC BY 2.0",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/"
+  },
+  "s_el_gaucho": {
+    "caption": "Ribeye steak on a grill plate",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Rib-Eye-Steak_auf_Grillplatte.jpg",
+    "author": "Alice Wiegand",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/"
+  },
+  "s_cabbages_condoms": {
+    "caption": "Thai green curry with chicken",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Thai_green_chicken_curry_and_roti.jpg",
+    "author": "Takeaway",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "s_have_a": {
+    "caption": "Isan-style papaya salad, sticky rice and grilled chicken",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Som_tam_khao_niao_kai_yang.jpg",
+    "author": "Takeaway",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "s_savoey_seafood": {
+    "caption": "Tom yum soup with prawns",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Tom_yum_goong-01.jpg",
+    "author": "kisocci",
+    "license": "CC BY-SA 2.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/2.0/"
   }
 }

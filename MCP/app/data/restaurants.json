@@ -1440,5 +1440,386 @@
         "nutrition_source": "estimated"
       }
     ]
+  },
+  {
+    "name": "Pala Pizza Romana",
+    "branch": "Interchange 21 (Asok)",
+    "address": "Interchange 21, 399 Sukhumvit Rd, Khlong Toei Nuea, Watthana, Bangkok 10110",
+    "lat": 13.737,
+    "lng": 100.5609,
+    "cuisine": "italian",
+    "rating": 4.5,
+    "phone": "+16502013595",
+    "source_urls": [
+      "https://linktr.ee/pala.pizzaromana",
+      "https://www.timeout.com/bangkok/restaurants/pala-pizza-romana-bistrot"
+    ],
+    "notes": "Approximate Asok location for the simulator. Menu, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Margherita Pizza al Taglio",
+        "name_th": "พิซซ่ามาร์เกริต้า",
+        "price_thb": 155,
+        "price_source": "simulated",
+        "calories": 340,
+        "protein_g": 15,
+        "carbs_g": 44,
+        "fat_g": 12,
+        "sodium_mg": 640,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Mushroom and Mozzarella Pizza Slice",
+        "name_th": "พิซซ่าเห็ดและมอซซาเรลลา",
+        "price_thb": 185,
+        "price_source": "simulated",
+        "calories": 390,
+        "protein_g": 17,
+        "carbs_g": 45,
+        "fat_g": 16,
+        "sodium_mg": 720,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Prosciutto and Rocket Pizza Slice",
+        "name_th": "พิซซ่าโปรชุตโตและร็อกเก็ต",
+        "price_thb": 225,
+        "price_source": "simulated",
+        "calories": 415,
+        "protein_g": 22,
+        "carbs_g": 42,
+        "fat_g": 18,
+        "sodium_mg": 1010,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Penne Arrabbiata",
+        "name_th": "เพนเน่อาราเบียตต้า",
+        "price_thb": 245,
+        "price_source": "simulated",
+        "calories": 490,
+        "protein_g": 13,
+        "carbs_g": 78,
+        "fat_g": 14,
+        "sodium_mg": 820,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Rocket and Parmesan Salad",
+        "name_th": "สลัดร็อกเก็ตพาร์เมซาน",
+        "price_thb": 195,
+        "price_source": "simulated",
+        "calories": 210,
+        "protein_g": 8,
+        "carbs_g": 11,
+        "fat_g": 15,
+        "sodium_mg": 330,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "El Gaucho",
+    "branch": "Sukhumvit 19 (Asok)",
+    "address": "8/4–7 Sukhumvit Soi 19, Khlong Toei Nuea, Watthana, Bangkok 10110",
+    "lat": 13.7384,
+    "lng": 100.5598,
+    "cuisine": "argentinian_steakhouse",
+    "rating": 4.6,
+    "phone": "+16502013595",
+    "source_urls": [
+      "https://elgaucho.asia/th/en/location/soi-19"
+    ],
+    "notes": "Approximate Asok location for the simulator. Menu, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Grilled Ribeye Steak 250 g",
+        "name_th": "สเต๊กริบอายย่าง",
+        "price_thb": 1250,
+        "price_source": "simulated",
+        "calories": 810,
+        "protein_g": 58,
+        "carbs_g": 2,
+        "fat_g": 63,
+        "sodium_mg": 720,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Beef Tenderloin Steak 250 g",
+        "name_th": "สเต๊กเนื้อสันใน",
+        "price_thb": 1350,
+        "price_source": "simulated",
+        "calories": 565,
+        "protein_g": 63,
+        "carbs_g": 1,
+        "fat_g": 34,
+        "sodium_mg": 560,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Grilled Lamb Chops",
+        "name_th": "ซี่โครงแกะย่าง",
+        "price_thb": 1090,
+        "price_source": "simulated",
+        "calories": 790,
+        "protein_g": 54,
+        "carbs_g": 4,
+        "fat_g": 62,
+        "sodium_mg": 890,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Roasted Seasonal Vegetables",
+        "name_th": "ผักตามฤดูกาลอบ",
+        "price_thb": 220,
+        "price_source": "simulated",
+        "calories": 170,
+        "protein_g": 4,
+        "carbs_g": 19,
+        "fat_g": 9,
+        "sodium_mg": 360,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Creamy Mashed Potatoes",
+        "name_th": "มันบดครีม",
+        "price_thb": 210,
+        "price_source": "simulated",
+        "calories": 290,
+        "protein_g": 5,
+        "carbs_g": 31,
+        "fat_g": 16,
+        "sodium_mg": 430,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Cabbages & Condoms",
+    "branch": "Sukhumvit 12 (Asok)",
+    "address": "10 Sukhumvit Soi 12, Khlong Toei, Bangkok 10110",
+    "lat": 13.7347,
+    "lng": 100.5564,
+    "cuisine": "thai",
+    "rating": 4.4,
+    "phone": "+16502013595",
+    "source_urls": [
+      "https://www.openrice.com/en/bangkok/r-cabbages-condoms-khlong-toei-thai-food-general-padthai-r2872"
+    ],
+    "notes": "Approximate Asok location for the simulator. Menu, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Green Chicken Curry with Jasmine Rice",
+        "name_th": "แกงเขียวหวานไก่กับข้าวหอมมะลิ",
+        "price_thb": 255,
+        "price_source": "simulated",
+        "calories": 590,
+        "protein_g": 26,
+        "carbs_g": 65,
+        "fat_g": 25,
+        "sodium_mg": 1050,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Chicken and Cashew Stir-Fry",
+        "name_th": "ไก่ผัดเม็ดมะม่วงหิมพานต์",
+        "price_thb": 265,
+        "price_source": "simulated",
+        "calories": 450,
+        "protein_g": 28,
+        "carbs_g": 35,
+        "fat_g": 21,
+        "sodium_mg": 890,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Vegetable Spring Rolls",
+        "name_th": "ปอเปี๊ยะผัก",
+        "price_thb": 145,
+        "price_source": "simulated",
+        "calories": 280,
+        "protein_g": 7,
+        "carbs_g": 33,
+        "fat_g": 13,
+        "sodium_mg": 580,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Massaman Beef Curry",
+        "name_th": "แกงมัสมั่นเนื้อ",
+        "price_thb": 295,
+        "price_source": "simulated",
+        "calories": 580,
+        "protein_g": 28,
+        "carbs_g": 33,
+        "fat_g": 38,
+        "sodium_mg": 1070,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Mango Sticky Rice",
+        "name_th": "ข้าวเหนียวมะม่วง",
+        "price_thb": 165,
+        "price_source": "simulated",
+        "calories": 365,
+        "protein_g": 5,
+        "carbs_g": 61,
+        "fat_g": 12,
+        "sodium_mg": 120,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Have a Zeed",
+    "branch": "Terminal 21 Asok, 4th floor",
+    "address": "Terminal 21 Asok, 88 Sukhumvit Soi 19, Watthana, Bangkok 10110",
+    "lat": 13.7379,
+    "lng": 100.5602,
+    "cuisine": "thai_isan",
+    "rating": 4.4,
+    "phone": "+16502013595",
+    "source_urls": [
+      "https://www.terminal21.co.th/asok/shop/detail/en/515/have-a-zeed"
+    ],
+    "notes": "Approximate Asok location for the simulator. Menu, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Chicken Larb with Sticky Rice",
+        "name_th": "ลาบไก่กับข้าวเหนียว",
+        "price_thb": 189,
+        "price_source": "simulated",
+        "calories": 425,
+        "protein_g": 26,
+        "carbs_g": 52,
+        "fat_g": 12,
+        "sodium_mg": 850,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Papaya Salad with Salted Egg",
+        "name_th": "ส้มตำไข่เค็ม",
+        "price_thb": 139,
+        "price_source": "simulated",
+        "calories": 220,
+        "protein_g": 8,
+        "carbs_g": 25,
+        "fat_g": 10,
+        "sodium_mg": 820,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Grilled Pork Neck with Sticky Rice",
+        "name_th": "คอหมูย่างกับข้าวเหนียว",
+        "price_thb": 229,
+        "price_source": "simulated",
+        "calories": 510,
+        "protein_g": 25,
+        "carbs_g": 49,
+        "fat_g": 24,
+        "sodium_mg": 800,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Mushroom Larb",
+        "name_th": "ลาบเห็ด",
+        "price_thb": 159,
+        "price_source": "simulated",
+        "calories": 165,
+        "protein_g": 6,
+        "carbs_g": 19,
+        "fat_g": 7,
+        "sodium_mg": 590,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Thai Milk Tea",
+        "name_th": "ชาไทยเย็น",
+        "price_thb": 85,
+        "price_source": "simulated",
+        "calories": 225,
+        "protein_g": 4,
+        "carbs_g": 43,
+        "fat_g": 4,
+        "sodium_mg": 95,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Savoey Seafood",
+    "branch": "Terminal 21 Asok",
+    "address": "Terminal 21 Asok, 88 Sukhumvit Soi 19, Watthana, Bangkok 10110",
+    "lat": 13.738,
+    "lng": 100.5599,
+    "cuisine": "thai_seafood",
+    "rating": 4.4,
+    "phone": "+16502013595",
+    "source_urls": [
+      "https://www.savoey.co.th/th/terminal-21-asok-th/"
+    ],
+    "notes": "Approximate Asok location for the simulator. Menu, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Tom Yum Goong",
+        "name_th": "ต้มยำกุ้ง",
+        "price_thb": 299,
+        "price_source": "simulated",
+        "calories": 340,
+        "protein_g": 24,
+        "carbs_g": 28,
+        "fat_g": 15,
+        "sodium_mg": 1310,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Crab Curry with Egg",
+        "name_th": "ปูผัดผงกะหรี่",
+        "price_thb": 490,
+        "price_source": "simulated",
+        "calories": 520,
+        "protein_g": 27,
+        "carbs_g": 29,
+        "fat_g": 33,
+        "sodium_mg": 1240,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Steamed Sea Bass with Lime",
+        "name_th": "ปลากะพงนึ่งมะนาว",
+        "price_thb": 550,
+        "price_source": "simulated",
+        "calories": 610,
+        "protein_g": 43,
+        "carbs_g": 20,
+        "fat_g": 39,
+        "sodium_mg": 1370,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Crab Fried Rice",
+        "name_th": "ข้าวผัดปู",
+        "price_thb": 245,
+        "price_source": "simulated",
+        "calories": 475,
+        "protein_g": 23,
+        "carbs_g": 62,
+        "fat_g": 15,
+        "sodium_mg": 990,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Stir-Fried Morning Glory",
+        "name_th": "ผัดผักบุ้งไฟแดง",
+        "price_thb": 145,
+        "price_source": "simulated",
+        "calories": 145,
+        "protein_g": 5,
+        "carbs_g": 12,
+        "fat_g": 9,
+        "sodium_mg": 740,
+        "nutrition_source": "estimated"
+      }
+    ]
   }
 ]

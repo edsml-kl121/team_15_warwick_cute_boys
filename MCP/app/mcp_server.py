@@ -47,7 +47,7 @@ def search_restaurants(
     max_km: float = 10,
 ) -> list[dict]:
     """Find Shopee Food restaurants near a location (defaults to Silom, Bangkok).
-    query matches shop name, cuisine or dish names (e.g. 'salmon', 'healthy', 'thai').
+    query matches shop name, branch, address, cuisine or dish names (e.g. 'Asoke', 'salmon', 'healthy').
     Returns address, phone (E.164, for booking calls), distance, delivery fee, ETA and
     price range, nearest first."""
     return store.search_restaurants(query, lat, lng, max_km)
@@ -101,8 +101,8 @@ def place_food_order(
 
 @mcp.tool()
 def search_products(query: str = "", category: str = "") -> list[dict]:
-    """Search Shopee Mall products (categories: sleep, recovery).
-    Try 'eye mask', 'gel eye pads', 'white noise', or 'yoga mat'.
+    """Search Shopee Mall products (categories: sleep, recovery, electronics, lifestyle).
+    Try 'eye mask', 'power bank', 'desk lamp', or 'canvas tote'.
     Several shops sell similar items (e.g. 4 eye masks, 59-390 THB): compare shop, price
     and rating, and let the user pick."""
     return store.search_products(query, category)
