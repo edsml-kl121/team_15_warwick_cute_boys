@@ -12,6 +12,8 @@
   const voiceStatus = voiceDock.querySelector('.voice-status');
   const history = document.querySelector('.history-modal');
   const historyList = history.querySelector('.history-list');
+  const locationButton = history.querySelector('[data-action="toggle-location"]');
+  const locationLabel = locationButton.querySelector('.location-label');
   const locationHint = history.querySelector('.location-hint');
   const order = document.querySelector('.order-dialog');
   const photo = document.querySelector('#meal-photo');
@@ -40,7 +42,8 @@
   let pendingOrder;
   let checkingUpdates = false;
   let previewUrl;
-  let useCurrentLocation = false;
+  let locationState = 'off';
+  let locationVersion = 0;
 
   const pages = window.createZippyPages({
     service,
@@ -580,28 +583,40 @@
     return null;
   }
 
+  function setLocationState(state) {
+    locationState = state;
+    locationVersion += 1;
+    const enabled = state === 'on';
+    locationButton.setAttribute('aria-pressed', String(enabled));
+    locationLabel.textContent = enabled ? 'Using my location ✓' : 'Use my location';
+    locationHint.textContent = {
+      off: 'Restaurant searches use Silom, Bangkok.',
+      on: 'Restaurants near you',
+      failed: 'Searching from Silom',
+    }[state];
+  }
+
   async function getRestaurantLocation() {
-    if (!useCurrentLocation) return null;
-    const position = await service.currentLocation();
-    if (!useCurrentLocation) return null;
-    if (!position) showFeedback('Location unavailable. Searching near Silom, Bangkok.');
+    if (locationState !== 'on') return null;
+    const version = locationVersion;
+    const position = await service.currentLocation().catch(() => null);
+    if (version !== locationVersion) return null;
+    if (!position) {
+      setLocationState('failed');
+      showFeedback('Location unavailable. Searching near Silom, Bangkok.');
+    }
     return position;
   }
 
   async function toggleLocation(control) {
-    if (useCurrentLocation) {
-      useCurrentLocation = false;
-      control.setAttribute('aria-pressed', 'false');
-      locationHint.textContent = 'Restaurant searches use Silom, Bangkok.';
+    if (locationState === 'on') {
+      setLocationState('off');
       return;
     }
     control.disabled = true;
     try {
-      useCurrentLocation = Boolean(await service.currentLocation());
-      control.setAttribute('aria-pressed', String(useCurrentLocation));
-      locationHint.textContent = useCurrentLocation
-        ? 'Location is on for this visit. Ask Zippy to find food nearby.'
-        : 'Location unavailable. Restaurant searches use Silom, Bangkok.';
+      const position = await service.currentLocation().catch(() => null);
+      setLocationState(position ? 'on' : 'failed');
     } finally {
       control.disabled = false;
     }
