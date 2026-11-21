@@ -73,7 +73,7 @@ Use simulated payments, demo health data, a phone-sized web app and test booking
 | CI/CD | GitHub Actions runs tests, then deploys to Railway |
 | Frontend | Node.js phone-sized web app |
 | Backend | Python 3.13, uv, FastAPI and uvicorn with websockets |
-| Agents | OpenAI Agents SDK (`openai-agents` ≥ 0.24), `Agent` for chat and proactive messages, `RealtimeAgent` for calls, built-in MCP client |
+| Agents | OpenAI Agents SDK (`openai-agents` ≥ 0.24), `Agent` for chat and proactive messages, `RealtimeAgent` for calls and the browser voice coach, built-in MCP client |
 | Chat | `gpt-6.1-sol` on the ultrafast service tier with reasoning `low`, set by `CHAT_MODEL`, `CHAT_SERVICE_TIER` and `CHAT_REASONING_EFFORT`. Meal photos use `FOOD_SCAN_MODEL`. |
 | Calls | `gpt-realtime-2.1`, transcription `gpt-live-transcribe` with `languages: ["en", "th"]`, Twilio 9.x REST and Media Streams |
 | Shopee | Simulator at `https://shopee-sim-production.up.railway.app/mcp` |
@@ -120,7 +120,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 
 1. At 18:15, use Ploy's protein gap and tastes to show one meal and a short reason via `show_meal`. Call `find_similar_dishes` with the dish, calories and protein. Rank by protein, then distance, then price, and call `show_places`. Call `get_activity_today` and suggest walking when activity is low.
 2. After Ploy agrees, `book_table_by_phone(restaurant_id, party_size, time)` uses `get_menu` for the name, phone and location. Create a `calling` booking, dial and return immediately. The header shows **Calling…**, then **On a call** when the media stream starts and the booking becomes `in_call`.
-3. Dial with Twilio `calls.create` using `<Connect><Stream>`, `<Parameter>` values for purpose and booking ID, a 40-second ring timeout and answering-machine detection. The call agent speaks first, asks for one at 19:00 under Ploy and uses `report_booking_result(outcome, confirmed_time, quote, notes)` once. The outcomes are `booked`, `full` and `other`. Capture the callee's words, say goodbye and request `end_call`.
+3. Dial with Twilio `calls.create` using `<Connect><Stream>`, `<Parameter>` values for purpose and booking ID, a 40-second ring timeout and answering-machine detection. After pickup the call agent replies to the restaurant's hello, or greets after 2 seconds of silence, introduces itself as Zippy, an AI assistant, asks for one at 19:00 under Ploy and uses `report_booking_result(outcome, confirmed_time, quote, notes)` once. The outcomes are `booked`, `full` and `other`. Capture the callee's words, say goodbye and request `end_call`.
 4. Treat Twilio's `no-answer`, `busy`, `failed` or a detected machine as `no_answer`. Every completed outcome adds a feed card with the restaurant, result, available `CallDuration` and quote, and sends an update to the coach.
 5. After no answer, the coach offers the next closest similar place from the earlier listings. After booking, confirm the reservation and show the walk route and leave-by reminder.
 6. `plan_walk(restaurant_id, arrive_by)` returns walking minutes based on shop distance at about 5 km/h or a maps API, a leave-by time and a Google Maps walking link. `set_reminder(at, message)` persists the reminder. A one-replica scheduler reloads pending reminders on startup and turns due reminders into feed notifications. Trigger them manually during the demo.
@@ -128,7 +128,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 ### Meal photos and voice
 
 - `POST /food-log/photo` accepts a multipart photo, stores it in S3 and asks the chat model for structured `{dish, kcal, protein_g, carbs_g, fat_g}`. Save the entry with its photo URL and post the nutrition summary in chat.
-- After both scenes work, the stretch voice coach can reuse chat tools through a browser WebSocket, a `RealtimeAgent` and 24 kHz PCM16 audio.
+- The voice coach reuses the chat coach's tools, rules and screen context through `WS /voice`, a `RealtimeAgent` and 24 kHz PCM16 audio. The microphone stays open until the visitor taps it again, and the visitor can talk over Zippy. Cards follow each spoken reply, and each exchange is saved to the chat. See [the voice protocol](FE/CHAT_API.md#live-voice).
 
 ## 5. Contracts
 
@@ -156,7 +156,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `GET /push/key`, `POST /push/subscribe` | Frontend reads the VAPID public key and saves the browser's push subscription. Notifications are pushed to saved devices. |
 | `POST /call-status` | Twilio callback with `CallStatus`, `CallDuration` and `AnsweredBy` |
 | `WS /media-stream` | Twilio streams call audio |
-| `WS /voice` | Browser voice coach (stretch) |
+| `WS /voice` | Browser voice coach: microphone PCM in; coach PCM and chat-style JSON events out |
 
 Frontend, cron and demo routes use shared `API_TOKEN` through an Authorization Bearer header or a `token` WebSocket query parameter. Browser data routes also require the guest cookie. The Ploy walkthrough uses a separate demo cookie selected by the `X-Zippy-Demo: 1` header. Validate `X-Twilio-Signature` on Twilio routes. Set CORS to `FRONTEND_ORIGIN`.
 
@@ -221,6 +221,7 @@ Keep prompts in one backend YAML file and restart after edits. Validate required
 - **`recommendation.food` and `recommendation.item`**. Choose from a context-specific shortlist. The backend looks up Shopee listings after the choice and sends the resulting cards to the guest.
 - **`phone.rules`**. Speak first in `{language}` and switch if requested. Keep turns short and read the time and party size back. Use confirmed details, keep the call focused on the reservation, say goodbye and call `end_call`.
 - **`phone.book_table`**. Use `{restaurant_name}`, `{party_size}`, `{time}` and `{name}`. Confirm the time, capture the exact words and report the outcome once.
+- **`phone.greeting`**. The opening turn, part of the session instructions: introduce Zippy as an AI assistant calling for `{name}`, say `{request}` to `{restaurant_name}` and ask a short question.
 
 ## 6. Build order
 
@@ -257,8 +258,8 @@ Write focused tests alongside each step.
 
 - Use an upgraded Twilio account with Thailand Voice Geographic Permissions. Trial accounts play a message, require a callee keypress and can only call verified numbers.
 - Set `timeout=40` and `machine_detection="Enable"` for unanswered-call handling. Easy Health's team number should ring unanswered. Salad Factory's team number should reach a teammate who confirms the booking.
-- Stream URLs cannot carry query strings. Use bidirectional `<Connect><Stream>` and pass `purpose` and `booking_id` as `<Parameter>` values. Read the Twilio `start` event before opening the Realtime session. Send raw `{"type":"response.create"}` after opening so the agent speaks first.
-- Use G.711 μ-law at 8 kHz in both directions. Batch 20 ms frames into roughly 50 ms (400-byte) chunks with a flush loop. Use `semantic_vad` with `interrupt_response` and `create_response`. Give transcription the English and Thai language list.
+- Stream URLs cannot carry query strings. Use bidirectional `<Connect><Stream>` and pass `purpose` and `booking_id` as `<Parameter>` values. Open the Realtime session while the phone rings, but generate nothing until the Twilio `start` event. Then let the restaurant speak first: the VAD replies to their hello. If no speech starts within 2 seconds (`SILENT_PICKUP_SECONDS`), send raw `{"type":"response.create"}`. Audio generated during ringing would play the instant the line opens and talk over the hello.
+- Use G.711 μ-law at 8 kHz in both directions. Batch 20 ms frames into roughly 50 ms (400-byte) chunks with a flush loop. Use `semantic_vad` with low `eagerness`, `interrupt_response` and `create_response`. Give transcription the English and Thai language list.
 - For barge-in, send a `mark` after outbound audio chunks, report confirmed bytes to `RealtimePlaybackTracker` and send `clear` on `audio_interrupted`.
 - `end_call` requests a hang-up. Wait for about 1.5 seconds of quiet and confirmed playback marks, bounded by 15 seconds, then call Twilio REST `calls(sid).update(status="completed")`.
 - Validate signatures against the configured public URL built from `TWILIO_PUBLIC_BASE_URL` and the path. For the WebSocket handshake, use the public `wss://…/media-stream` URL and accept the trailing-slash variant.
@@ -301,7 +302,8 @@ For local development, copy [`BE/.env.example`](BE/.env.example) to `BE/.env`. T
 | `RING_TIMEOUT_SECONDS` | Optional, default 40 |
 | `CALL_LANGUAGE` | Optional starting language, e.g. English or Thai |
 | `TRANSCRIPTION_LANGUAGES` | Optional, default `en,th` |
-| `REALTIME_MODEL`, `REALTIME_VOICE` | Optional, default `gpt-realtime-2.1` and the model's voice |
+| `REALTIME_MODEL`, `REALTIME_VOICE` | Optional, default `gpt-realtime-2.1` and the model's voice, for calls and browser voice |
+| `VOICE_NOISE_REDUCTION`, `VOICE_VAD_THRESHOLD`, `VOICE_SILENCE_MS` | Optional browser-voice tuning, default `near_field` (`far_field` for laptop mics, `off`), 0.7 and 500 ms |
 | `MAX_CALL_SECONDS` | Optional, default 300 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET` | For images. Use `AWS_SESSION_TOKEN` with temporary credentials. |
 | `HEALTH_PROVIDER` | Optional, `demo` by default or `whoop` |
@@ -315,7 +317,7 @@ Frontend and cron use `BACKEND_URL` and `API_TOKEN`. GitHub Actions uses the `RA
 ## 10. Safety rules
 
 - Ploy enters her PIN only on the ShopeePay simulator page. Zippy can prepare orders and request approval. It must never ask for, enter or store the PIN, or invoke a tool that executes payment.
-- Calls ring real phones. Verify that simulator phone numbers belong to the team before any live call. Dial only those test numbers.
+- Calls ring real phones. Verify that simulator phone numbers belong to the team before any live call. Dial only those test numbers. With `LIVE_CALLS=1`, any visitor can start a call, so keep the frontend URL private.
 - Keep the public demo URL private. The demo has no login and its shared browser-visible token only limits casual access. Production needs real authentication.
 - On the shared simulator, change or cancel only orders you created. Clean up your own test orders.
 - Keep personal health responses, photo URLs and tokens out of logs. Keep secrets in Railway variables or GitHub secrets and exclude `.env` from Docker images with `.dockerignore`.

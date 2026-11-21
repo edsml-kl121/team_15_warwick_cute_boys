@@ -67,6 +67,27 @@ The catalog image's `stock_image_credit` contains its caption, source, author,
 and license. The places card links to that credit when it displays the catalog image.
 An `orderable: true` places card offers delivery for listings with `item_id`.
 
+## Live voice
+
+`WS /voice?session_id=…` runs a spoken conversation with the same coach, tools and rules as chat, through OpenAI Realtime. Authorize it like chat: Caddy adds the `API_TOKEN` (or pass `token=` in the query), and the visitor cookie must be present. Add `demo=1` for the Ploy demo, or `lat` and `lng` for a guest's location. The backend closes the socket with code 1008 when the token, visitor or session ID is missing, and sends an `error` message when no OpenAI key is configured.
+
+The browser sends binary frames of 24 kHz mono 16-bit PCM microphone audio, starting after `ready`. The backend sends Zippy's audio the same way, plus JSON text frames:
+
+| Message | Meaning |
+| --- | --- |
+| `{"type":"ready"}` | The session is open. Start sending audio. |
+| `{"type":"user","item_id","text"}` | What the visitor has said so far. Update the bubble with this `item_id`; `""` holds its place. |
+| `{"type":"delta","text"}` | Zippy's words as it speaks |
+| `{"type":"tool","name"}` | Zippy started a tool, as in chat |
+| `{"type":"card"}`, `{"type":"quick_replies"}` | Shown after the reply's words, as in chat |
+| `{"type":"done"}` | The reply is complete |
+| `{"type":"hold"}` | Something that may be speech started. Pause Zippy's audio and keep the rest. |
+| `{"type":"resume"}` | It had no words, such as a voice across the room. Play on from where Zippy paused. |
+| `{"type":"interrupted"}` | The visitor said words over Zippy. Drop audio that hasn't played yet. |
+| `{"type":"error","message"}` | Show the message and end voice |
+
+Zippy answers only once the visitor's words are transcribed, so background noise gets no reply. A user bubble stays hidden until it has words. Each finished spoken exchange is saved to the chat session like a typed turn, so it reappears when the chat reloads. Quick replies tapped during voice are sent through typed chat.
+
 ## Transcription and meal photos
 
 Browser speech recognition supplies interim words where supported. Optionally set the `zippy-transcribe` meta tag to a separate transcription endpoint. Accept multipart `audio` and return `{"text":"…"}`. This fallback transcribes after capture ends. The current FastAPI backend has the meal photo route, but no browser transcription route.

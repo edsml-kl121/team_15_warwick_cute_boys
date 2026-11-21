@@ -6,6 +6,9 @@ from time import monotonic
 from typing import Literal
 from urllib.parse import urlencode, urlsplit
 
+# After pickup Zippy waits for the restaurant's hello and replies to it. If the line stays quiet this long, Zippy greets.
+SILENT_PICKUP_SECONDS = 2.0
+
 
 class DemoPhone:
     def validate(self, phone):
@@ -28,10 +31,16 @@ def requested(booking):
 
 
 class PreparedCall:
-    """A phone agent whose Realtime session is open and whose greeting is already being generated."""
+    """A phone agent whose Realtime session opened while the phone rang. It says nothing until the call connects."""
 
     def __init__(self, session, end_requested, tracker):
         self.session, self.end_requested, self.tracker = session, end_requested, tracker
+
+    async def greet(self):
+        """Open the call with the agent's introduction when the restaurant picks up without speaking."""
+        from agents.realtime.model_inputs import RealtimeModelSendRawMessage
+
+        await self.session.model.send_event(RealtimeModelSendRawMessage({"type": "response.create"}))
 
     async def close(self):
         await self.session.close()
@@ -132,37 +141,36 @@ class RealtimeFactory:
             end_requested.set()
             return "Ending the call."
 
-        instructions = self.prompts.render("phone.rules", language=self.language) + "\n" + self.prompts.render(
-            "phone.book_table", restaurant_name=booking["restaurant_name"],
-            party_size=booking["party_size"], time=booking["time"], name=booking["name"], request=requested(booking),
-        )
+        # The opening lives in the session instructions, so the reply to the restaurant's hello and the greeting
+        # after a silent pickup both introduce Zippy the same way.
+        instructions = "\n".join((
+            self.prompts.render("phone.rules", language=self.language),
+            self.prompts.render("phone.book_table", restaurant_name=booking["restaurant_name"],
+                                party_size=booking["party_size"], time=booking["time"], name=booking["name"],
+                                request=requested(booking)),
+            self.prompts.render("phone.greeting", restaurant_name=booking["restaurant_name"],
+                                name=booking["name"], request=requested(booking)),
+        ))
         agent = RealtimeAgent(name="Book a table", instructions=instructions, tools=[report_booking_result, end_call])
         output = {"format": "g711_ulaw"}
         if self.voice:
             output["voice"] = self.voice
+        # Low eagerness lets restaurant staff pause ("let me check…") without Zippy jumping in.
         runner = RealtimeRunner(agent, config={"model_settings": {"model_name": self.model, "audio": {
             "input": {"format": "g711_ulaw", "transcription": {"model": "gpt-live-transcribe", "languages": self.languages},
-                      "turn_detection": {"type": "semantic_vad", "interrupt_response": True, "create_response": True}},
+                      "turn_detection": {"type": "semantic_vad", "eagerness": "low",
+                                         "interrupt_response": True, "create_response": True}},
             "output": output,
         }}})
         return await runner.run(model_config={"playback_tracker": tracker})
 
     async def prepare(self, booking):
-        """Connect to Realtime and start the greeting; its audio queues until the call connects."""
+        """Connect to Realtime while the phone rings, without speaking yet."""
         from agents.realtime.model import RealtimePlaybackTracker
-        from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 
         end_requested, tracker = asyncio.Event(), RealtimePlaybackTracker()
         session = await self.open(booking, end_requested, tracker)
         await session.enter()
-        greeting = self.prompts.render("phone.greeting", restaurant_name=booking["restaurant_name"],
-                                       name=booking["name"], request=requested(booking))
-        try:
-            await session.model.send_event(RealtimeModelSendRawMessage(
-                {"type": "response.create", "other_data": {"response": {"instructions": greeting}}}))
-        except BaseException:
-            await session.close()
-            raise
         return PreparedCall(session, end_requested, tracker)
 
 
@@ -177,6 +185,7 @@ async def bridge(socket, service, factory, booking, start):
     marks = {}
     numbers = itertools.count()
     last_audio = monotonic()
+    heard = asyncio.Event()
 
     async def send(event, **fields):
         await socket.send_json({"event": event, "streamSid": stream_id, **fields})
@@ -224,6 +233,16 @@ async def bridge(socket, service, factory, booking, start):
                 await send("clear")
             elif event.type == "error":
                 raise RuntimeError("The Realtime call encountered an error.")
+            elif event.type == "raw_model_event" and getattr(event.data, "type", None) == "raw_server_event":
+                if event.data.data.get("type") == "input_audio_buffer.speech_started":
+                    heard.set()
+
+    async def open_line():
+        """Let the restaurant say hello first; the VAD replies when they finish. Greet if they stay quiet."""
+        try:
+            await asyncio.wait_for(heard.wait(), SILENT_PICKUP_SECONDS)
+        except TimeoutError:
+            await call.greet()
 
     async def hang_up():
         await end_requested.wait()
@@ -236,11 +255,16 @@ async def bridge(socket, service, factory, booking, start):
         await service.phone.hang_up(call_sid)
 
     session = call.session
-    tasks = [asyncio.create_task(task) for task in (receive(), relay(session), play(session), hang_up())]
+    opening = asyncio.create_task(open_line())
+    tasks = [opening, *(asyncio.create_task(task) for task in (receive(), relay(session), play(session), hang_up()))]
     try:
-        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in done:
-            task.result()
+        pending = set(tasks)
+        while True:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+            if done != {opening}:  # The call goes on after the opening; anything else finishing ends it.
+                break
     finally:
         for task in tasks:
             task.cancel()

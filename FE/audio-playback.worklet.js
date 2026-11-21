@@ -1,4 +1,5 @@
-// Copied unchanged from openai-agents-python examples/realtime/app/static/audio-playback.worklet.js (MIT License).
+// Based on openai-agents-python examples/realtime/app/static/audio-playback.worklet.js (MIT License), with
+// `hold` and `resume` added: a hold fades Zippy out and keeps the rest of its reply until resume or stop.
 // Runs in the browser's audio thread: 24 kHz 16-bit PCM in/out.
 class PCMPlaybackProcessor extends AudioWorkletProcessor {
     constructor() {
@@ -9,6 +10,8 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
         this.currentIndex = 0;
         this.isCurrentlyPlaying = false;
         this.fadeSamples = Math.round(sampleRate * 0.02);
+        this.held = false;
+        this.gain = 1;
 
         this.port.onmessage = (event) => {
             const message = event.data;
@@ -41,6 +44,13 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
 
                 this.buffers.push(floatData);
 
+            } else if (message.type === 'hold') {
+                this.held = true;
+
+            } else if (message.type === 'resume') {
+                this.held = false;
+                this.port.postMessage({ type: this.hasPendingAudio() ? 'playing' : 'drained' });
+
             } else if (message.type === 'stop') {
                 this.reset();
                 this.port.postMessage({ type: 'drained' });
@@ -59,6 +69,8 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
         this.currentBuffer = null;
         this.currentIndex = 0;
         this.isCurrentlyPlaying = false;
+        this.held = false;
+        this.gain = 1;
     }
 
     hasPendingAudio() {
@@ -99,15 +111,24 @@ class PCMPlaybackProcessor extends AudioWorkletProcessor {
 
         const channel = output[0];
         let wroteSamples = false;
+        const step = this.fadeSamples > 0 ? 1 / this.fadeSamples : 1;
 
         for (let i = 0; i < channel.length; i++) {
-            const sample = this.pullSample();
+            if (this.held && this.gain === 0) {
+                channel[i] = 0; // Held: the rest of the reply waits, unplayed.
+                continue;
+            }
+            this.gain = this.held ? Math.max(0, this.gain - step) : Math.min(1, this.gain + step);
+            const sample = this.pullSample() * this.gain;
             channel[i] = sample;
             if (sample !== 0) {
                 wroteSamples = true;
             }
         }
 
+        if (this.held) {
+            return true;
+        }
         if (this.hasPendingAudio()) {
             this.isCurrentlyPlaying = true;
         } else if (!wroteSamples && this.isCurrentlyPlaying) {
