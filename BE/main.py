@@ -541,19 +541,34 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     @app.post("/presenter/trigger", dependencies=protected)
     async def presenter_trigger(request: Request, body: PresenterTrigger,
                                 x_presenter_key: str = Header(default="")):
-        """Fire a moment for a guest found by display name, from any browser holding the presenter key."""
+        """Trigger the requested action for all guests matching the display name."""
         if not settings.presenter_key or not secrets.compare_digest(x_presenter_key.encode(), settings.presenter_key.encode()):
             raise HTTPException(403, "Enter the presenter key.")
+        if sum(value is not None for value in (body.moment, body.reminder)) != 1:
+            raise HTTPException(400, "Pass one moment or reminder.")
         owners = request.app.state.find_guests(body.guest_name)
         if not owners:
             raise HTTPException(404, f"No guest named {body.guest_name}.")
-        if len(owners) > 1:
-            raise HTTPException(409, f"{len(owners)} guests are named {body.guest_name}. Use a unique name.")
-        zippy = request.app.state.open_visitor(owners[0], demo=owners[0].startswith("demo-"))
-        sessions = zippy.state["sessions"]
-        session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
-        await fire(zippy, session_id, body.moment, body.reminder)
-        return {"status": "ok", "session_id": session_id, "devices": len(zippy.state.get("push_subscriptions", []))}
+
+        async def trigger_guest(owner):
+            zippy = request.app.state.open_visitor(owner, demo=owner.startswith("demo-"))
+            if zippy is None:
+                raise HTTPException(404, f"No guest named {body.guest_name}.")
+            sessions = zippy.state["sessions"]
+            session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
+            await fire(zippy, session_id, body.moment, body.reminder)
+            return session_id, len(zippy.state.get("push_subscriptions", []))
+
+        results = await asyncio.gather(*(trigger_guest(owner) for owner in owners), return_exceptions=True)
+        succeeded = [result for result in results if isinstance(result, tuple)]
+        if not succeeded:
+            raise results[0]
+        response = {"status": "ok" if len(succeeded) == len(owners) else "partial",
+                    "guests": len(succeeded), "matched_guests": len(owners),
+                    "devices": sum(count for _, count in succeeded)}
+        if len(owners) == 1:
+            response["session_id"] = succeeded[0][0]
+        return response
 
     @app.get("/push/key", dependencies=protected)
     async def push_key():

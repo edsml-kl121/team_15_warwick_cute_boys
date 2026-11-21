@@ -67,6 +67,10 @@
       if (!keyInput.value) throw new Error('Enter the presenter key.');
       const result = await service.json('presenter/trigger', { guest_name: guestName, ...body }, 'POST',
         { 'X-Presenter-Key': keyInput.value });
+      if (result.status === 'partial') {
+        return `triggered for ${result.guests} of ${result.matched_guests} matching guests. The other triggers failed.`;
+      }
+      if (result.guests > 1) return `triggered for all ${result.guests} guests named ${guestName}.`;
       return result.devices ? `sent to ${guestName} and ${result.devices} device${result.devices > 1 ? 's' : ''}.`
         : `sent to ${guestName}'s chat. Their phone hasn't turned notifications on yet.`;
     }

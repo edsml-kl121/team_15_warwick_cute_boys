@@ -152,7 +152,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `GET /bookings/{id}` | Frontend checks booking status |
 | `POST /proactive {moment}` | Cron or demo triggers `morning_sleep`, `dinner_tip`, `daily_summary` or `weekly_recap` |
 | `POST /demo/reset`, `POST /demo/trigger` | Presenter resets or triggers a moment or reminder |
-| `POST /presenter/trigger` | Presenter dashboard fires a moment for a guest by display name, authorized by `X-Presenter-Key` |
+| `POST /presenter/trigger` | Presenter dashboard fires a moment or reminder for all guests matching a display name, authorized by `X-Presenter-Key` |
 | `GET /push/key`, `POST /push/subscribe` | Frontend reads the VAPID public key and saves the browser's push subscription. Notifications are pushed to saved devices. |
 | `POST /call-status` | Twilio callback with `CallStatus`, `CallDuration` and `AnsweredBy` |
 | `WS /media-stream` | Twilio streams call audio |

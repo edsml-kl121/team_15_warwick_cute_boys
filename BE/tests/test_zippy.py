@@ -151,6 +151,7 @@ def demo(tmp_path, pinned=True, **options):
     if pinned:
         settings.demo_now = "2026-11-21T07:02:00+07:00"
     settings.token = "test-token"
+    settings.presenter_key = "local-presenter"
     settings.directory = tmp_path
     settings.use_ai = False
     settings.mongo_url = None
@@ -564,6 +565,34 @@ class FakePush:
     async def send(self, subscriptions, notification):
         self.sent.append(([item["endpoint"] for item in subscriptions], notification))
         return set(self.gone)
+
+
+def test_presenter_reminder_triggers_for_all_guests_named_mew(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        recipients = []
+        for index, name in enumerate(("Mew", "MEW", "Other")):
+            assert client.post("/visitor", headers=guest, json={"name": name}).is_success
+            token = client.cookies["zippy_guest"]
+            owner = "guest-" + sha256(token.encode()).hexdigest()
+            session = f"phone-{index}"
+            scoped = client.app.state.open_visitor(owner, demo=False)
+            scoped.remind(session, "22:30", "Wear your eye mask")
+            scoped.store.save()
+            recipients.append((token, session))
+            assert client.delete("/visitor", headers=guest).is_success
+
+        body = {"guest_name": "mew", "reminder": "22:30"}
+        assert client.post("/presenter/trigger", json=body).status_code == 403
+        result = client.post("/presenter/trigger", json=body, headers={"X-Presenter-Key": "local-presenter"})
+        assert result.is_success, result.text
+        assert result.json() == {"status": "ok", "guests": 2, "matched_guests": 2, "devices": 0}
+        for index, (token, session) in enumerate(recipients):
+            client.cookies.set("zippy_guest", token)
+            feed = client.get(f"/feed?session_id={session}", headers=guest).json()
+            assert [entry["text"] for entry in feed] == (["Wear your eye mask"] if index < 2 else [])
+            client.cookies.delete("zippy_guest")
 
 
 def test_push_subscribe_and_presenter_trigger_by_guest_name(tmp_path):

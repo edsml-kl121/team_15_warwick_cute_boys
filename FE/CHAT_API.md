@@ -95,4 +95,4 @@ The app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` sho
 4. **Send.** Each feed item with `notify` is pushed as `{"title", "body", "url": "./", "tag"}`. The service worker shows `Zippy · <title>` and opens the app on tap. Gone devices (404 or 410) are removed.
 5. **Proxy.** The Caddyfile forwards `/api/push/*` and `/api/presenter/*` with the server token.
 
-The presenter dashboard targets a guest by display name with the presenter key (`POST /presenter/trigger`), so a laptop can send a moment to a phone. The Ploy demo session option still works from the same browser.
+The presenter dashboard targets all guests with a matching display name, ignoring case, with the presenter key (`POST /presenter/trigger`), so a laptop can send a moment to a phone. The Ploy demo session option still works from the same browser.
