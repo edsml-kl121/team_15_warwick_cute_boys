@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from demo import Clock
+from food_catalog_search import FoodCatalogSearch
 from integrations import AgentsCoach, BucketImages, MealPhotos, Prompts, Shopee, bucket_client
 from persona import Persona, apply_to_profile
 from push import WebPush, add_subscription
@@ -201,10 +202,6 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                                       os.getenv("FOOD_SCAN_MODEL") or "gpt-4.1-mini")
         # Chat defaults to gpt-6.1-sol on the ultrafast tier; "low" is that model's lowest reasoning effort.
         # Override per environment, e.g. on Railway. CHAT_SERVICE_TIER=default uses the standard tier.
-        assistant = coach or (AgentsCoach(
-            prompts, os.getenv("CHAT_MODEL") or "gpt-6.1-sol", os.getenv("CHAT_SERVICE_TIER", "ultrafast") or None,
-            os.getenv("CHAT_REASONING_EFFORT") or "low",
-        ) if settings.use_ai else None)
         data = recommendation_data
         if data is None and (bucket := os.getenv("RECOMMENDATION_BUCKET") or os.getenv("S3_BUCKET")):
             client = getattr(photo_reader, "client", None) if bucket == os.getenv("S3_BUCKET") else None
@@ -228,6 +225,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             if mongo_client:
                 mongo_client.close()
             raise
+        assistant = coach or (AgentsCoach(
+            prompts, os.getenv("CHAT_MODEL") or "gpt-6.1-sol", os.getenv("CHAT_SERVICE_TIER", "ultrafast") or None,
+            os.getenv("CHAT_REASONING_EFFORT") or "low", catalog_search=FoodCatalogSearch(db),
+        ) if settings.use_ai else None)
         app.state.recommendations = RecommendationAgents(
             data, prompts, (os.getenv("RECOMMENDATION_MODEL") or "gpt-4.1-mini") if settings.use_ai else None,
             database=db,

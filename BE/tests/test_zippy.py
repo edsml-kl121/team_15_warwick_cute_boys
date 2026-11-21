@@ -8,6 +8,7 @@ from hashlib import sha256
 from types import SimpleNamespace
 
 import mongomock
+import food_catalog_search
 from agents.tool_context import ToolContext
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -484,6 +485,61 @@ def test_chat_reads_named_dish_calories_from_mongo_before_the_coach(tmp_path):
         assert not cards(events)
         assert "couldn’t find" in "".join(event.get("text", "") for event in events)
         assert not getattr(simulator, "dish_searches", [])
+
+
+def test_chat_finds_catalog_variants_when_base_dish_has_no_exact_entry(tmp_path):
+    database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_one({"_id": "food_db", "foods": [
+        {"food_id": "chicken-fried-rice", "menu": "Khao Pad Gai (Chicken Fried Rice)", "nutrition": {"calories": 620}},
+        {"food_id": "shrimp-fried-rice", "menu": "Khao Pad Goong (Shrimp Fried Rice)", "nutrition": {"calories": 540}},
+        {"food_id": "fried-chicken-rice", "menu": "Fried Chicken Rice", "nutrition": {"calories": 650}},
+    ]})
+    with demo(tmp_path, database=database) as (client, simulator):
+        events = say(client, "How many calories in fried rice?")
+        assert {card["kcal"] for card in cards(events)} == {540, 620}
+        events = say(client, "Please read the whole food catalog to see if it exists")
+        assert {card["kcal"] for card in cards(events)} == {540, 620}
+        events = say(client, "What are the calories in chicken fried rice?")
+        assert [card["kcal"] for card in cards(events)] == [620]
+        assert not getattr(simulator, "dish_searches", [])
+
+
+def test_managed_food_search_puts_ranked_mongo_nutrition_in_coach_context(tmp_path, monkeypatch):
+    database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_many([
+        {"_id": "food_db", "foods": [
+            {"food_id": f"food-{index}", "menu": f"Dish {index}", "nutrition": {"calories": index + 300}}
+            for index in range(25)
+        ]},
+        {"_id": food_catalog_search.ACTIVE_INDEX, "vector_store_id": "fixture-index"},
+    ])
+
+    class OpenAI:
+        def __init__(self, **kwargs):
+            self.vector_stores = self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def search(self, store_id, *, query, max_num_results):
+            assert (store_id, query, max_num_results) == ("fixture-index", "something hearty", 20)
+            return SimpleNamespace(data=[
+                SimpleNamespace(attributes={"food_id": f"food-{index}"}, content="No canonical nutrition here")
+                for index in reversed(range(20))
+            ])
+
+    monkeypatch.setattr(food_catalog_search, "AsyncOpenAI", OpenAI)
+    with demo(tmp_path, database=database) as (client, _):
+        matches = client.portal.call(food_catalog_search.FoodCatalogSearch(database).search, "something hearty")
+        assert len(matches) == 20
+        assert matches[0] == {"food_id": "food-19", "dish": "Dish 19", "nutrition": {"calories": 319}}
+        zippy = visitor(client)
+        context = AgentsCoach(zippy.prompts).input(zippy, "ploy", "something hearty", [], catalog_matches=matches)
+        data = next(item["content"] for item in context if item["content"].startswith("Food catalog candidates"))
+        assert json.loads(data[data.index("["):]) == matches
         assert visitor(client).session("ploy")["places"] == []
 
 
@@ -1138,7 +1194,7 @@ def test_coach_reply_shows_only_its_last_card_and_quick_replies(tmp_path, monkey
         zippy = visitor(client)
         coach = AgentsCoach(zippy.prompts)
 
-        def fake_agent(service, session_id, cards, *, location=None):
+        def fake_agent(service, session_id, cards, *, location=None, catalog_matches=()):
             return Run(cards)
 
         monkeypatch.setattr(coach, "agent", fake_agent)

@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from demo import NUTRIENTS, after_minutes
 from persona import lighter_orders, persona_meals, pick_meal, plan_day, weekly_recap
-from recommendations import RecommendationUnavailable, food_candidates, match_catalog_food, number
+from recommendations import RecommendationUnavailable, food_candidates, match_catalog_foods, number
 from storage import read_food_catalog, read_guest_recommendation_data
 
 
@@ -23,6 +23,7 @@ NUTRITION_LOOKUP = re.compile(r"\b(calories?|kcal|nutrition|macros?|protein|carb
 NUTRITION_CONTEXT = re.compile(
     r"\b(my|today|yesterday|logged|goal|remaining|left|burned|suggest|recommend|under|at least)\b",
 )
+CATALOG_RECHECK = re.compile(r"\b(?:whole|entire|full) (?:food )?catalog\b")
 CATALOG_NUTRIENTS = {
     "kcal": (r"\b(calories?|kcal)\b", "kcal"),
     "protein_g": (r"\bprotein\b", "g protein"),
@@ -270,13 +271,14 @@ class Zippy:
         foods = await asyncio.to_thread(read_food_catalog, self.store.database)
         if not foods:
             raise RecommendationUnavailable("No food catalog is configured in MongoDB.")
-        food = match_catalog_food(foods, query)
-        if not food:
-            return None
-        nutrition = food.get("nutrition") or {}
-        return {"kind": "meal", "food_id": food.get("food_id"), "dish": food["menu"],
-                "kcal": number(nutrition.get("calories")), "protein_g": number(nutrition.get("protein_g")),
-                "carbs_g": number(nutrition.get("carbs_g")), "fat_g": number(nutrition.get("fat_g"))}
+        matches = await asyncio.to_thread(match_catalog_foods, foods, query)
+        meals = []
+        for food in matches:
+            nutrition = food.get("nutrition") or {}
+            meals.append({"kind": "meal", "food_id": food.get("food_id"), "dish": food["menu"],
+                          "kcal": number(nutrition.get("calories")), "protein_g": number(nutrition.get("protein_g")),
+                          "carbs_g": number(nutrition.get("carbs_g")), "fat_g": number(nutrition.get("fat_g"))})
+        return meals
 
     async def recommend_meal(self, session_id, meal_time="dinner"):
         """The dinner tip: a dish, then the places that serve it."""
@@ -405,13 +407,32 @@ class Zippy:
         elif answer in {"plan tomorrow's meals", "find lighter orders"}:
             for event in self.recap_answer(answer):
                 yield event
-        elif NUTRITION_LOOKUP.search(answer) and not NUTRITION_CONTEXT.search(answer):
+        elif (NUTRITION_LOOKUP.search(answer) and not NUTRITION_CONTEXT.search(answer)) or (
+            session.get("catalog_query") and CATALOG_RECHECK.search(answer)
+        ):
+            query = session.get("catalog_query", message) if CATALOG_RECHECK.search(answer) else message
+            session["catalog_query"] = query
             yield {"type": "tool", "name": "lookup_food_nutrition"}
-            meal = await self.lookup_food_nutrition(message)
-            if meal is None:
+            catalog_search = getattr(self.coach, "catalog_search", None)
+            if catalog_search:
+                matches = await catalog_search.search(query)
+                if matches:
+                    async for event in self.coach.stream(
+                        self, session_id, message, session["history"], location=location, catalog_matches=matches,
+                    ):
+                        yield event
+                    return
+            meals = await self.lookup_food_nutrition(query)
+            if not meals:
                 yield {"type": "delta", "text": "I couldn’t find a matching dish in the food catalog. What’s the dish name?"}
                 return
-            fields = [field for field, (pattern, _) in CATALOG_NUTRIENTS.items() if re.search(pattern, answer)]
+            if len(meals) > 1:
+                yield {"type": "delta", "text": "I found several matching dishes in the food catalog. Their nutrition varies by dish."}
+                for meal in meals:
+                    yield {"type": "card", "card": meal}
+                return
+            meal = meals[0]
+            fields = [field for field, (pattern, _) in CATALOG_NUTRIENTS.items() if re.search(pattern, query.casefold())]
             values = [f"{meal[field]:g} {CATALOG_NUTRIENTS[field][1]}"
                       for field in (fields or CATALOG_NUTRIENTS) if meal[field] is not None]
             if values:

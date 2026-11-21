@@ -68,6 +68,12 @@ The same endpoint accepts `{guest_name, agent: "food"}` and `{guest_name, agent:
 
 Both agents read the authenticated guest’s MongoDB profile, wearable history and meals. The food agent also reads the catalog from MongoDB. The bucket supplies images. Explicitly imported sample readings and meals are labeled and used when the corresponding personal history is empty. The item agent reports when no qualifying sleep or activity reading exists.
 
+### Semantic food search
+
+From `BE/`, run `uv run python -m food_catalog_search` with `MONGO_URL` and `OPENAI_API_KEY` for the app’s OpenAI project. The command uploads one short searchable file per dish and publishes the active index in `food_catalog` only after every file has finished indexing. Run it again after changing searchable catalog fields. Unchanged imports reuse the existing index, and an interrupted upload resumes from its recorded file IDs.
+
+For food queries, chat requests up to 20 matches from the managed OpenAI vector store and resolves each food ID against MongoDB before adding the current nutrition to the model context. Only menu descriptions and catalog tags are indexed. If a development environment uses a different OpenAI project, `FOOD_SEARCH_OPENAI_API_KEY` can scope access to the catalog’s project. When managed search is unavailable, chat can still look up dishes directly in MongoDB.
+
 Other app clients can use `POST /recommendations/food`, `POST /recommendations/food/places`, and `GET /recommendations/health-history` with the guest cookie and backend API token. Request and response shapes are documented in [the frontend API guide](../FE/CHAT_API.md).
 
 The `weekly_recap` moment summarises the last seven logged days (calories, protein, steps, Shopee Food spend, sodium and weight), states one insight and asks what to work on. Its replies, **Plan tomorrow's meals** and **Find lighter orders**, answer from the same history without an AI key.

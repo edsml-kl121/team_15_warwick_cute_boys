@@ -75,31 +75,37 @@ def words(value):
     return set(re.findall(r"[^\W_]+", str(value).casefold()))
 
 
-def match_catalog_food(foods, query):
-    """Find a named dish in a question, tolerating modest spelling errors."""
+def match_catalog_foods(foods, query):
+    """Prefer a full dish name, then return variants of a matching dish phrase."""
     tokens = re.findall(r"[^\W_]+", query.casefold())
-    message = " ".join(tokens)
-    ranked = []
+    message = f" {' '.join(tokens)} "
+    ranked, variants = [], []
     for food in foods:
         name = re.findall(r"[^\W_]+", food.get("menu", "").casefold())
         size = len(name)
-        if not size or size > len(tokens):
+        if not size:
             continue
         label = " ".join(name)
-        if f" {label} " in f" {message} ":
-            confidence = 1.0
-        elif size >= 2:
+        if f" {label} " in message:
+            ranked.append((1.0 + 0.02 * min(size, 5), food))
+            continue
+        if 2 <= size <= len(tokens):
             confidence = max(SequenceMatcher(None, label, " ".join(tokens[i:i + size])).ratio()
                              for i in range(len(tokens) - size + 1))
-            if confidence < 0.83:
+            if confidence >= 0.83:
+                ranked.append((confidence + 0.02 * min(size, 5), food))
                 continue
-        else:
-            continue
-        ranked.append((confidence + 0.02 * min(size, 5), food))
-    ranked.sort(key=lambda candidate: candidate[0], reverse=True)
-    if not ranked or len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.01:
-        return None
-    return ranked[0][1]
+        overlap = SequenceMatcher(None, tokens, name).find_longest_match().size
+        if overlap >= 2:
+            variants.append((overlap, size, food))
+    if ranked:
+        best = max(score for score, _ in ranked)
+        return [food for score, food in ranked if best - score < 0.01][:3]
+    if not variants:
+        return []
+    best = max(overlap for overlap, _, _ in variants)
+    variants.sort(key=lambda match: (match[1], match[2]["menu"]))
+    return [food for overlap, _, food in variants if overlap == best][:3]
 
 
 def wearable_summary(persona, day):
