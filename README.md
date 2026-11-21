@@ -1,6 +1,10 @@
 # Zippy
 
-Zippy is a chat-first health assistant. Guests can ask about food and nutrition, log meals from photos, and review sleep, activity, workouts, and calories burned. The presenter can send personalized food and product suggestions or ask a guest to confirm a workout. Zippy uses a Shopee simulator for nearby food, shopping, and PIN-approved checkout.
+We created Zippy, a health agent that brings together all your health information and tells you the next best action based on what your body needs right now. It can even take that action for you.
+
+Zippy can recommend a meal, order food or products that help you sleep better, and even pick up the phone and call a restaurant for you. It can check whether they have a table, confirm they can make a dish that fits your needs, and book it on the spot. Zippy handles it all, from insight to action, so you don’t have to.
+
+In the demo, guests can ask about nutrition, log meals from photos, and review sleep, activity, workouts, and calories burned. The presenter can send personalized suggestions or ask a guest to confirm a workout. The Shopee simulator handles nearby food, shopping, and PIN-approved checkout.
 
 ## Run locally
 
