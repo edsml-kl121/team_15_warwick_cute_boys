@@ -498,8 +498,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         return await zippy.buy(body.session_id, body.item_id)
 
     @app.post("/actions/pay", dependencies=protected)
-    async def pay(body: OrderBody, zippy=Depends(service)):
-        return await zippy.payment_url(body.session_id, body.order_id)
+    async def pay(body: OrderBody, request: Request, zippy=Depends(service)):
+        demo_query = "?demo=ploy" if visitor_mode(request) else ""
+        return_url = f"{settings.origin.rstrip('/')}/{demo_query}"
+        return await zippy.payment_url(body.session_id, body.order_id, return_url=return_url)
 
     @app.post("/actions/cancel", dependencies=protected)
     async def cancel(body: OrderBody, zippy=Depends(service)):

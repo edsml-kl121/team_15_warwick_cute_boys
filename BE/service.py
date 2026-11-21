@@ -314,11 +314,14 @@ class Zippy:
             raise LookupError("Unknown order.")
         return order
 
-    async def payment_url(self, session_id, order_id):
+    async def payment_url(self, session_id, order_id, return_url=None):
         async with self.mutation:
             if self.owned_order(session_id, order_id)["status"] != "unpaid":
                 raise ValueError("This order is no longer payable.")
-            return await self.shopee.call("request_payment", order_id=order_id)
+            values = {"order_id": order_id}
+            if return_url:
+                values["return_url"] = return_url
+            return await self.shopee.call("request_payment", **values)
 
     async def order_status(self, session_id, order_id, cancel=False):
         async with self.mutation:

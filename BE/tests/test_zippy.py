@@ -148,6 +148,7 @@ class FakePhotos:
 @contextmanager
 def demo(tmp_path, pinned=True, **options):
     settings = Settings()
+    settings.origin = "https://zippy.example"
     if pinned:
         settings.demo_now = "2026-11-21T07:02:00+07:00"
     settings.token = "test-token"
@@ -216,6 +217,9 @@ def test_sleep_trigger_can_be_replayed_from_the_presenter(tmp_path):
         assert order["arrival_date"] == "2026-11-22"
         pay = client.post("/actions/pay", json={"order_id": order["order_id"]})
         assert pay.json()["approve_url"] == "https://sim.example/pay/demo"
+        assert simulator.calls[-1] == ("request_payment", {
+            "order_id": order["order_id"], "return_url": "https://zippy.example/?demo=ploy",
+        })
         assert client.get("/shopee-orders/order-1").json() == {"status": "unpaid"}
         simulator.status = "confirmed"
         for _ in range(2):

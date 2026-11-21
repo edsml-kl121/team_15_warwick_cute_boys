@@ -181,6 +181,7 @@
   }
 
   function scrollToLatest(animate = false) {
+    stopChatScrollFeedback();
     chat.scrollTo({ top: chat.scrollHeight, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant' });
   }
 
@@ -487,8 +488,6 @@
         return;
       }
       reviewedOrder = { id: quote.order_id, threadId };
-      order.querySelector('.order-link').hidden = true;
-      order.querySelector('[data-action="checkout"]').hidden = false;
       const quoteCard = createCard({
         title: quote.item.name, source: 'shopee', description: quote.item.shop,
         rows: [
@@ -517,11 +516,11 @@
       if (reviewedOrder !== current) return;
       const approval = payment.approve_url && safeURL(payment.approve_url);
       if (!approval) throw new Error('ShopeePay didn’t return a checkout link.');
-      const link = order.querySelector('.order-link');
-      link.href = approval.href;
-      link.hidden = false;
-      control.hidden = true;
-      link.focus();
+      pendingOrder = current;
+      try { sessionStorage.setItem(pendingOrderKey, JSON.stringify(pendingOrder)); } catch {
+        // Order polling still works until the current tab closes.
+      }
+      location.assign(approval.href);
     } catch (error) {
       showFeedback(error.message);
     } finally {
@@ -738,13 +737,6 @@
     closeHistory();
   });
   history.addEventListener('close', () => history.classList.remove('closing'));
-  order.querySelector('.order-link').addEventListener('click', () => {
-    if (!reviewedOrder) return;
-    pendingOrder = reviewedOrder;
-    try { sessionStorage.setItem(pendingOrderKey, JSON.stringify(pendingOrder)); } catch {
-      // Order polling still works until the current tab closes.
-    }
-  });
   order.addEventListener('close', () => {
     const current = reviewedOrder;
     reviewedOrder = null;
@@ -907,16 +899,91 @@
   // Keep the newest message in view while the chat area shrinks or grows (keyboard, dock modes),
   // unless the person scrolled up to read older messages.
   const PIN_DISTANCE = 80;
+  const SCROLL_IDLE_MS = 180;
+  const MIN_TICK_GAP_MS = 45;
+  const scrollKeys = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+  let scrollAudio;
+  let lastUserScroll = -Infinity;
+  let lastScrollTick = -Infinity;
+  let messageAtFade;
+
+  function unlockScrollAudio() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext || scrollAudio?.state === 'running') return;
+    try {
+      scrollAudio ??= new AudioContext();
+      scrollAudio.resume().catch(() => {});
+    } catch { /* Scrolling still works if audio is unavailable. */ }
+  }
+
+  function tickChatScroll() {
+    navigator.vibrate?.(8);
+    if (scrollAudio?.state !== 'running') return;
+    const at = scrollAudio.currentTime;
+    const tone = scrollAudio.createOscillator();
+    const volume = scrollAudio.createGain();
+    tone.type = 'triangle';
+    tone.frequency.setValueAtTime(850, at);
+    tone.frequency.exponentialRampToValueAtTime(440, at + .022);
+    volume.gain.setValueAtTime(.075, at);
+    volume.gain.exponentialRampToValueAtTime(.001, at + .022);
+    tone.connect(volume).connect(scrollAudio.destination);
+    tone.start(at);
+    tone.stop(at + .023);
+  }
+
+  function topChatMessage() {
+    const fadeEdge = chat.getBoundingClientRect().top + parseFloat(getComputedStyle(chat).paddingTop);
+    let top = null;
+    for (const message of log.children) {
+      if (message.classList.contains('typing-dots') || message.getBoundingClientRect().top > fadeEdge) break;
+      top = message;
+    }
+    return top;
+  }
+
+  function beginChatScroll() {
+    const now = performance.now();
+    if (now - lastUserScroll > SCROLL_IDLE_MS) messageAtFade = topChatMessage();
+    lastUserScroll = now;
+  }
+
+  function stopChatScrollFeedback() {
+    lastUserScroll = -Infinity;
+    messageAtFade = null;
+  }
+
+  for (const event of ['click', 'touchend', 'keydown']) {
+    document.addEventListener(event, unlockScrollAudio, { capture: true, passive: true });
+  }
+  chat.addEventListener('wheel', beginChatScroll, { passive: true });
+  chat.addEventListener('touchmove', beginChatScroll, { passive: true });
+  chat.addEventListener('keydown', event => {
+    if (event.target === chat && scrollKeys.has(event.key)) beginChatScroll();
+  });
+
   let pinnedToLatest = true;
   let chatHeight = chat.clientHeight;
   chat.addEventListener('scroll', () => {
     if (chat.clientHeight !== chatHeight) return; // Caused by the resize, not by the person scrolling.
     pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
+    const now = performance.now();
+    if (now - lastUserScroll > SCROLL_IDLE_MS) return;
+    lastUserScroll = now;
+    const top = topChatMessage();
+    if (top === messageAtFade) return;
+    messageAtFade = top;
+    if (now - lastScrollTick < MIN_TICK_GAP_MS) return;
+    lastScrollTick = now;
+    tickChatScroll();
   }, { passive: true });
   // Watch both the chat area (keyboard, dock modes) and its content (card photos loading, streamed text).
   const keepPinned = new ResizeObserver(() => {
     chatHeight = chat.clientHeight;
-    if (pinnedToLatest) chat.scrollTop = chat.scrollHeight;
+    if (pinnedToLatest && chat.scrollHeight - chat.clientHeight - chat.scrollTop > 1) {
+      stopChatScrollFeedback();
+      chat.scrollTop = chat.scrollHeight;
+    }
   });
   keepPinned.observe(chat);
   keepPinned.observe(log);
