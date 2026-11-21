@@ -15,9 +15,16 @@
   const photo = document.querySelector('#meal-photo');
   const feedback = document.querySelector('#feedback');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  const storageKey = 'zippy-chats';
-  let threads = readThreads();
-  let active = threads[0] || newThread();
+  const main = document.querySelector('.ph');
+  const headerStatus = document.querySelector('.header-status');
+  const lock = document.querySelector('.lock-screen');
+  const onboarding = document.querySelector('.onboarding-dialog');
+  const onboardingForm = onboarding.querySelector('form');
+  const pendingOrderKey = service.demo ? 'zippy-ploy-pending-order' : 'zippy-guest-pending-order';
+  const HEADER_STATUS = { online: 'Online', calling: 'Calling…', in_call: 'On a call' };
+  let threads = [];
+  let active = newThread();
+  let ready = false;
   let mode = 'idle';
   let voiceState = 'idle';
   let sendingVoice = false;
@@ -26,6 +33,18 @@
   let reviewedOrder;
   let pendingOrder;
   let checkingUpdates = false;
+
+  const pages = window.createZippyPages({
+    service,
+    showFeedback,
+    onPhoto: () => photo.click(),
+    onVoice: () => {
+      location.hash = '';
+      openVoice();
+    },
+  });
+
+  const push = window.createZippyPush({ service, showFeedback });
 
   const voice = window.createZippyVoice({
     transcribe: service.transcribe,
@@ -37,31 +56,25 @@
     },
   });
 
-  function readThreads() {
-    try {
-      const stored = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
-      return Array.isArray(stored) ? stored : [];
-    } catch {
-      return [];
-    }
-  }
-
   function newThread() {
-    return { id: crypto.randomUUID?.() || Date.now().toString(36), draft: '', messages: [] };
+    return { id: crypto.randomUUID?.() || Date.now().toString(36), draft: '', messages: [], loaded: true };
   }
 
-  function saveThreads() {
-    try {
-      const serializable = threads.map(({ pending, response, ...thread }) => ({
-        ...thread,
-        messages: thread.messages.map(message => pending != null && message.id === pending
-          ? { ...message, error: 'This request was interrupted. You can retry it.' }
-          : message),
-      }));
-      sessionStorage.setItem(storageKey, JSON.stringify(serializable));
-    } catch {
-      // Storage can be disabled in private previews. The current tab still retains its history.
+  async function loadThread(thread) {
+    if (thread.loaded) return;
+    const { timeline, last_feed_id: lastFeedId } = await service.json('sessions/' + encodeURIComponent(thread.id));
+    thread.messages = [];
+    for (const entry of timeline) {
+      if (entry.type === 'feed') {
+        appendFeed(thread, entry.item);
+      } else if (entry.type === 'turn') {
+        thread.messages.push({ role: 'user', text: entry.message });
+        const reply = { role: 'assistant', text: '', cards: [], replies: [] };
+        for (const event of entry.events) applyReply(reply, event);
+        if (reply.text || reply.cards.length || reply.replies.length) thread.messages.push(reply);
+      }
     }
+    Object.assign(thread, { loaded: true, connected: true, lastFeedId });
   }
 
   function node(tag, className, text) {
@@ -142,13 +155,77 @@
     chat.scrollTo({ top: chat.scrollHeight, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant' });
   }
 
+  const STAGE_LABELS = { awake: 'Awake', rem: 'REM', light: 'Light', deep: 'Deep' };
+
+  function icon(name, className = '') {
+    const element = node('i', `material-icons ${className}`.trim(), name);
+    element.setAttribute('aria-hidden', 'true');
+    return element;
+  }
+
+  function meter({ label, text, value, max, met }) {
+    const group = node('div', 'meter');
+    const head = node('div', 'row');
+    const name = node('span', '', label);
+    if (met === true) name.prepend(icon('check_circle', 'met'));
+    head.append(name, node('b', '', text));
+    const bar = node('span', 'bar');
+    const fill = node('span');
+    fill.style.width = `${Math.max(0, Math.min(100, max > 0 ? 100 * value / max : 0))}%`;
+    bar.append(fill);
+    group.append(head, bar);
+    return group;
+  }
+
+  function sleepTimeline(segments) {
+    const total = segments.reduce((sum, segment) => sum + segment.minutes, 0);
+    const chart = node('div', 'stages');
+    chart.setAttribute('role', 'img');
+    chart.setAttribute('aria-label', 'Sleep stages: ' + segments.map(s => `${STAGE_LABELS[s.stage] || s.stage} ${s.minutes} min`).join(', '));
+    for (const segment of segments) {
+      const part = node('span', `stage stage-${segment.stage}`);
+      part.style.flexGrow = String(segment.minutes / total);
+      chart.append(part);
+    }
+    const legend = node('div', 'stage-legend');
+    legend.setAttribute('aria-hidden', 'true');
+    for (const [stage, label] of Object.entries(STAGE_LABELS)) {
+      const key = node('span', '', label);
+      key.prepend(node('i', `stage-${stage}`));
+      legend.append(key);
+    }
+    return [chart, legend];
+  }
+
+  function cardHeader(data) {
+    const head = node('div', 'card-head');
+    if (data.icon) head.append(icon(data.icon, 'card-icon'));
+    head.append(node('h2', '', data.title));
+    if (data.source === 'shopee') head.append(node('span', 'shp', data.sourceLabel || 'Shopee'));
+    return head;
+  }
+
   function createCard(data) {
     if (!data || typeof data !== 'object' || typeof data.title !== 'string' || !data.title.trim()) return null;
     const card = node('article', 'card result-card');
-    if (data.source === 'shopee') card.append(node('span', 'shp', 'Shopee'));
-    card.append(node('h2', '', data.title));
+    if (typeof data.badge === 'string') card.append(node('span', 'badge', data.badge));
+    card.append(cardHeader(data));
     if (typeof data.value === 'string') card.append(node('p', 'hero', data.value));
     if (typeof data.description === 'string') card.append(node('p', 'lbl', data.description));
+    if (data.timeline?.length) card.append(...sleepTimeline(data.timeline));
+    for (const item of data.meters || []) card.append(meter(item));
+    if (data.items?.length) {
+      const list = node('ul', 'result-list');
+      for (const item of data.items) {
+        const entry = node('li');
+        const text = node('div');
+        text.append(node('b', '', item.title), node('span', 'mut', item.detail));
+        entry.append(text);
+        if (item.value) entry.append(node('strong', '', item.value));
+        list.append(entry);
+      }
+      card.append(list);
+    }
     if (Array.isArray(data.rows)) {
       const rows = node('dl', 'result-rows');
       for (const row of data.rows) {
@@ -158,6 +235,11 @@
         rows.append(group);
       }
       if (rows.childElementCount) card.append(rows);
+    }
+    if (data.chips?.length) {
+      const chips = node('div', 'card-chips');
+      for (const text of data.chips) if (typeof text === 'string') chips.append(node('span', 'tag', text));
+      card.append(chips);
     }
     if (data.imageUrl) {
       const url = safeURL(data.imageUrl);
@@ -172,20 +254,22 @@
       }
     }
     if (data.type === 'product' && typeof data.productId === 'string' && data.productId) {
-      const button = node('button', 'sbtn', 'Review order');
+      const button = node('button', 'sbtn', 'Buy');
       button.type = 'button';
       button.dataset.action = 'quote';
       button.dataset.productId = data.productId;
+      button.setAttribute('aria-label', `Buy ${data.title}`);
       card.append(button);
     }
     const href = data.link && safeURL(data.link);
     if (href) {
-      const link = node('a', 'btn2', 'Open walking route');
+      const link = node('a', 'btn2', data.linkLabel || 'Open link');
       link.href = href.href;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       card.append(link);
     }
+    if (typeof data.note === 'string' && data.note) card.append(node('p', 'mut card-note', data.note));
     return card;
   }
 
@@ -197,7 +281,9 @@
         const avatar = node('img', 'av live-avatar');
         avatar.src = './assets/zippy-face.png';
         avatar.alt = 'Zippy';
-        row.append(avatar, node('span', 'zt', message.text));
+        const text = node('div', 'zt md');
+        text.append(window.zippyMarkdown.render(message.text));
+        row.append(avatar, text);
         group.append(row);
       }
       const cardGroup = node('div', 'card-group');
@@ -235,6 +321,7 @@
   }
 
   function renderMessages(animate = false) {
+    headerStatus.textContent = HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
     const messages = active.messages.map(createMessage);
     if (animate) messages.at(-1)?.classList.add('message-enter');
@@ -262,23 +349,27 @@
     if (thread === active) renderMessages(true);
     try {
       await service.chat(thread.id, message.text, event => {
-        if (event.type === 'delta' && typeof event.text === 'string') reply.text += event.text;
-        if (event.type === 'card') reply.cards.push(...service.cards(event.card));
-        if (event.type === 'quick_replies' && Array.isArray(event.options)) {
-          reply.replies = event.options.filter(text => typeof text === 'string' && text.trim());
-        }
+        applyReply(reply, event);
         if (thread === active) renderMessages();
       });
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
       thread.messages.push(reply);
+      if (!thread.connected) push.sync(thread.id);
       thread.connected = true;
     } catch (error) {
       message.error = error.message || 'Couldn’t send this message.';
     } finally {
       delete thread.pending;
       delete thread.response;
-      saveThreads();
       if (thread === active) renderMessages(true);
+    }
+  }
+
+  function applyReply(reply, event) {
+    if (event.type === 'delta' && typeof event.text === 'string') reply.text += event.text;
+    if (event.type === 'card') reply.cards.push(...service.cards(event.card));
+    if (event.type === 'quick_replies' && Array.isArray(event.options)) {
+      reply.replies = event.options.filter(text => typeof text === 'string' && text.trim());
     }
   }
 
@@ -290,14 +381,14 @@
     thread.messages.push(message);
     threads = [thread, ...threads.filter(item => item !== thread)];
     requestReply(thread, message);
-    saveThreads();
   }
 
   function drawHistory() {
     history.querySelector('.history-empty').hidden = threads.length > 0;
     historyList.replaceChildren(...threads.map(thread => {
       const item = node('li');
-      const button = node('button', 'history-chat', thread.messages.find(message => message.role === 'user')?.text?.slice(0, 140) || 'Chat');
+      const title = thread.messages?.find(message => message.role === 'user')?.text?.slice(0, 140) || thread.title || 'Chat';
+      const button = node('button', 'history-chat', title);
       button.type = 'button';
       button.dataset.action = 'select-chat';
       button.dataset.threadId = thread.id;
@@ -309,7 +400,9 @@
 
   function openHistory() {
     setMode('idle');
+    history.querySelector('.presenter-link').href = `./presenter.html?session=${encodeURIComponent(active.id)}`;
     drawHistory();
+    push.refresh();
     history.showModal();
   }
 
@@ -322,11 +415,17 @@
     }, { once: true });
   }
 
-  function selectThread(thread) {
-    active = thread;
-    closeHistory();
-    setMode('idle');
-    renderMessages();
+  async function selectThread(thread) {
+    try {
+      await loadThread(thread);
+      active = thread;
+      closeHistory();
+      setMode('idle');
+      renderMessages();
+      checkUpdates();
+    } catch (error) {
+      showFeedback(error.message);
+    }
   }
 
   function safeURL(value) {
@@ -396,7 +495,7 @@
   }
 
   async function checkUpdates() {
-    if (checkingUpdates || document.hidden) return;
+    if (!ready || checkingUpdates || document.hidden) return;
     const thread = active;
     if (!thread.connected && !pendingOrder) return;
     checkingUpdates = true;
@@ -410,28 +509,98 @@
             if (order.open) order.close();
           }
           pendingOrder = null;
-          sessionStorage.removeItem('zippy-pending-order');
+          sessionStorage.removeItem(pendingOrderKey);
         }
       }
-      if (!thread.connected) return;
+      if (!thread.connected && !service.demo) return;
       const query = new URLSearchParams({ session_id: thread.id, after: thread.lastFeedId || 0 });
       const items = await service.json('feed?' + query);
       if (!Array.isArray(items)) return;
       for (const item of items) {
         if (!Number.isInteger(item.id) || item.id <= (thread.lastFeedId || 0)) continue;
         thread.lastFeedId = item.id;
-        const cards = service.cards(item.card);
-        if (!item.text && !cards.length && !item.quick_replies?.length) continue;
-        thread.messages.push({ role: 'assistant', text: item.text, cards, replies: item.quick_replies });
+        if (item.notify && thread === active) showLock(item.notify, item.at);
+        appendFeed(thread, item);
       }
       if (items.length) {
-        saveThreads();
+        if (!threads.includes(thread)) threads.unshift(thread);
         if (thread === active) renderMessages(true);
       }
     } catch {
       // Keep the conversation intact during transient feed or payment polling failures.
     } finally {
       checkingUpdates = false;
+    }
+  }
+
+  function appendFeed(thread, item) {
+    if (HEADER_STATUS[item.header_status]) thread.headerStatus = item.header_status;
+    const cards = service.cards(item.card);
+    if (item.text || cards.length || item.quick_replies?.length) {
+      thread.messages.push({ role: 'assistant', text: item.text, cards, replies: item.quick_replies });
+    }
+  }
+
+  function showLock(notify, at) {
+    if (typeof notify?.title !== 'string') return;
+    const time = new Date(at);
+    const valid = !Number.isNaN(time.getTime());
+    const zone = { timeZone: 'Asia/Bangkok' };
+    lock.querySelector('.lock-time').textContent = valid ? time.toLocaleTimeString('en-GB', { ...zone, hour: '2-digit', minute: '2-digit' }) : '';
+    lock.querySelector('.lock-date').textContent = valid ? time.toLocaleDateString('en-GB', { ...zone, weekday: 'long', day: 'numeric', month: 'long' }) : '';
+    lock.querySelector('.lock-title').textContent = `Zippy · ${notify.title}`;
+    lock.querySelector('.lock-body').textContent = notify.body || '';
+    lock.hidden = false;
+    lock.querySelector('.nt').focus({ preventScroll: true });
+  }
+
+  function route() {
+    if (!ready) return;
+    const page = location.hash.slice(1);
+    const view = pages.pages.includes(page) ? page : 'chat';
+    main.dataset.view = view;
+    for (const section of main.querySelectorAll('.page')) section.hidden = section.dataset.page !== view;
+    if (view === 'chat') return renderMessages();
+    setMode('idle');
+    pages.render(view);
+  }
+
+  async function triggerDemo(control) {
+    const thread = active;
+    control.disabled = true;
+    try {
+      await service.json('demo/trigger', { session_id: thread.id, moment: control.dataset.moment });
+      if (!thread.connected) push.sync(thread.id);
+      thread.connected = true;
+      if (!threads.includes(thread)) threads = [thread, ...threads];
+      closeHistory();
+      location.hash = '';
+      await checkUpdates();
+    } catch (error) {
+      showFeedback(error.message);
+    } finally {
+      control.disabled = false;
+    }
+  }
+
+  async function resetDemo(control) {
+    if (!confirm('Reset the demo? This clears chats, orders and bookings on the server.')) return;
+    control.disabled = true;
+    try {
+      await service.json('demo/reset', {});
+      threads = [];
+      active = newThread();
+      pendingOrder = null;
+      sessionStorage.removeItem(pendingOrderKey);
+      lock.hidden = true;
+      closeHistory();
+      location.hash = '';
+      renderMessages();
+      showFeedback('Demo reset.');
+    } catch (error) {
+      showFeedback(error.message);
+    } finally {
+      control.disabled = false;
     }
   }
 
@@ -457,6 +626,14 @@
     },
     quote: control => reviewOrder(control.dataset.productId, control),
     checkout,
+    demo: triggerDemo,
+    'enable-push': control => push.enable(active.id, control),
+    'demo-reset': resetDemo,
+    'open-notification': () => {
+      lock.hidden = true;
+      location.hash = '';
+      scrollToLatest();
+    },
   };
 
   document.addEventListener('click', event => {
@@ -472,7 +649,7 @@
   order.querySelector('.order-link').addEventListener('click', () => {
     if (!reviewedOrder) return;
     pendingOrder = reviewedOrder;
-    try { sessionStorage.setItem('zippy-pending-order', JSON.stringify(pendingOrder)); } catch {
+    try { sessionStorage.setItem(pendingOrderKey, JSON.stringify(pendingOrder)); } catch {
       // Order polling still works until the current tab closes.
     }
   });
@@ -494,7 +671,6 @@
       await service.photo(file, thread.id);
       thread.connected = true;
       if (!threads.includes(thread)) threads.unshift(thread);
-      saveThreads();
       checkUpdates();
     } catch (error) {
       showFeedback(error.message);
@@ -514,8 +690,61 @@
   });
   window.addEventListener('pagehide', () => voice.cancel());
 
-  renderMessages();
-  try { pendingOrder = JSON.parse(sessionStorage.getItem('zippy-pending-order') || 'null'); } catch { pendingOrder = null; }
-  checkUpdates();
+  function showOnboarding(error, showForm) {
+    onboardingForm.hidden = !showForm;
+    onboarding.querySelector('.onboarding-description').hidden = !showForm;
+    onboarding.querySelector('.onboarding-retry').hidden = !error || showForm;
+    onboarding.querySelector('.onboarding-status').hidden = !error;
+    onboarding.querySelector('.onboarding-status').textContent = error || '';
+    onboarding.querySelector('.demo-entry').hidden = service.demo;
+    if (!onboarding.open) onboarding.showModal();
+  }
+
+  async function start() {
+    try {
+      const visitor = await service.json('visitor');
+      if (!visitor.ready && !service.demo) {
+        showOnboarding(null, true);
+        return;
+      }
+      if (!visitor.ready) await service.json('visitor', undefined, 'POST');
+      threads = await service.json('sessions');
+      active = threads[0] || newThread();
+      await loadThread(active);
+      try { pendingOrder = JSON.parse(sessionStorage.getItem(pendingOrderKey) || 'null'); } catch { pendingOrder = null; }
+      ready = true;
+      main.inert = false;
+      if (onboarding.open) onboarding.close();
+      route();
+      checkUpdates();
+    } catch (error) {
+      showOnboarding(error.message, false);
+    }
+  }
+
+  onboardingForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const fields = new FormData(onboardingForm);
+    const body = { name: fields.get('name').trim(), food: fields.get('food').trim() };
+    if (!body.name) return showOnboarding('Enter a display name.', true);
+    if (fields.get('budget')) body.budget_thb = Number(fields.get('budget'));
+    const button = onboardingForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await service.json('visitor', body);
+      await start();
+    } catch (error) {
+      showOnboarding(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  onboarding.addEventListener('cancel', event => event.preventDefault());
+  onboarding.querySelector('.onboarding-retry').addEventListener('click', start);
+  history.querySelector('.demo-controls').hidden = !service.demo;
+  history.querySelector('.demo-entry').hidden = service.demo;
+  window.addEventListener('hashchange', route);
+  main.inert = true;
+  start();
   setInterval(checkUpdates, 2500);
 })();

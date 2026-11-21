@@ -1,25 +1,30 @@
 import asyncio
 import json
 import os
+import re
 import secrets
+import uuid
 from contextlib import asynccontextmanager, nullcontext
-from datetime import date
-from typing import Literal
+from datetime import date, datetime, timezone
+from hashlib import sha256
+from typing import Annotated, Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from demo import Clock, DEMO_DATE
 from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
 from service import MOMENTS, Zippy
-from storage import DemoHealth, JsonStore
+from storage import DemoHealth, JsonStore, VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
 
 load_dotenv()
 Moment = Literal["morning_sleep", "dinner_tip", "daily_summary"]
+SESSION_ID = r"^[A-Za-z0-9_-]{1,80}$"
+SessionQuery = Annotated[str, Query(pattern=SESSION_ID)]
 
 
 class Settings:
@@ -31,10 +36,13 @@ class Settings:
         self.demo_now = os.getenv("DEMO_NOW", f"{DEMO_DATE}T07:02:00+07:00")
         self.use_ai = bool(os.getenv("OPENAI_API_KEY"))
         self.live_calls = os.getenv("LIVE_CALLS") == "1"
+        self.mongo_url = os.getenv("MONGO_URL")
+        self.mongo_database = os.getenv("MONGO_DATABASE") or "zippy"
+        self.secure_cookies = bool(os.getenv("RAILWAY_ENVIRONMENT"))
 
 
 class SessionBody(BaseModel):
-    session_id: str = Field(default="ploy", pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    session_id: str = Field(default="ploy", pattern=SESSION_ID)
 
 
 class ChatBody(SessionBody):
@@ -91,8 +99,29 @@ class Profile(BaseModel):
     connections: list[Connection] = Field(max_length=32)
 
 
+class Onboarding(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+    food: Annotated[str, StringConstraints(strip_whitespace=True, max_length=240)] = ""
+    budget_thb: int = Field(default=300, gt=0, le=10000)
+
+
+def visitor_mode(request):
+    return request.headers.get("X-Zippy-Demo") == "1"
+
+
+def visitor_cookie(demo):
+    return "zippy_ploy" if demo else "zippy_guest"
+
+
+def visitor_id(request, demo):
+    token = request.cookies.get(visitor_cookie(demo), "")
+    if re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        return ("demo-" if demo else "guest-") + sha256(token.encode()).hexdigest()
+    return None
+
+
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
-               phone=None, realtime=None, photos=None, coach=None, prompts_path=None):
+               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None):
     settings = settings or Settings()
 
     @asynccontextmanager
@@ -116,11 +145,56 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                 )
         photo_reader = photos
         if photo_reader is None and settings.use_ai and os.getenv("S3_BUCKET"):
-            photo_reader = MealPhotos(os.environ["S3_BUCKET"], os.getenv("AWS_REGION"))
+            photo_reader = MealPhotos(os.environ["S3_BUCKET"], os.getenv("AWS_REGION"),
+                                      os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"))
         assistant = coach or (AgentsCoach(prompts) if settings.use_ai else None)
-        zippy = Zippy(store or JsonStore(settings.directory, local_clock.now().date().isoformat()),
-                      local_clock, health or DemoHealth(), adapter, prompts, assistant, telephony, photo_reader)
+        demo_date = local_clock.now().date().isoformat()
+        mongo_client = None
+        db = database
+        if db is None and settings.mongo_url:
+            from pymongo import MongoClient
+
+            mongo_client = MongoClient(settings.mongo_url, serverSelectionTimeoutMS=5000, timeoutMS=5000)
+            db = mongo_client[settings.mongo_database]
+        if db is not None:
+            try:
+                initialize_mongo(db, demo_date)
+            except Exception:
+                if mongo_client:
+                    mongo_client.close()
+                raise
+        stores = VisitorStores(settings.directory, demo_date, db)
+        visitors = {}
+
+        def build(guest_store, demo):
+            return Zippy(guest_store, local_clock, health or DemoHealth(), adapter, prompts,
+                         assistant, telephony if demo else DemoPhone(), photo_reader)
+
+        def open_visitor(owner, *, demo, profile=None, create=False):
+            if owner and owner not in visitors:
+                guest_store = stores.open(owner, demo=demo, profile=profile, create=create)
+                if guest_store is not None:
+                    visitors[owner] = build(guest_store, demo)
+            return visitors.get(owner)
+
+        default_store = store or (stores.open("scheduled-demo", demo=True, create=True) if db is not None
+                                  else JsonStore(settings.directory, demo_date))
+        zippy = build(default_store, True)
         app.state.zippy = zippy
+        app.state.open_visitor = open_visitor
+
+        def booking_service(booking_id):
+            if booking_id in zippy.state["bookings"]:
+                return zippy
+            for scoped in visitors.values():
+                if booking_id in scoped.state["bookings"]:
+                    return scoped
+            owner = stores.booking_owner(booking_id)
+            if owner:
+                return open_visitor(owner, demo=owner.startswith("demo-"))
+            return None
+
+        app.state.booking_service = booking_service
         app.state.realtime = realtime or RealtimeFactory(
             prompts, os.getenv("REALTIME_MODEL", "gpt-realtime-2.1"), os.getenv("REALTIME_VOICE"),
             os.getenv("CALL_LANGUAGE", "English"),
@@ -129,30 +203,44 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         async def reminders():
             while True:
-                async with zippy.mutation:
-                    zippy.due_reminders()
+                for scoped in (zippy, *visitors.values()):
+                    async with scoped.mutation:
+                        scoped.due_reminders()
                 await asyncio.sleep(5)
 
-        async with adapter.connect() if hasattr(adapter, "connect") else nullcontext():
-            zippy.spawn(reminders())
-            try:
-                yield
-            finally:
-                tasks = list(zippy.tasks)
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            async with adapter.connect() if hasattr(adapter, "connect") else nullcontext():
+                zippy.spawn(reminders())
+                try:
+                    yield
+                finally:
+                    tasks = [task for scoped in (zippy, *visitors.values()) for task in scoped.tasks]
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            if mongo_client:
+                mongo_client.close()
 
     app = FastAPI(title="Zippy", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.origin], allow_methods=["GET", "POST", "PUT"],
-                       allow_headers=["Authorization", "Content-Type"])
+                       allow_headers=["Authorization", "Content-Type", "X-Zippy-Demo"])
 
     async def auth(authorization: str = Header(default="")):
         if not secrets.compare_digest(authorization.encode(), f"Bearer {settings.token}".encode()):
             raise HTTPException(401, "Invalid API token.")
 
-    def service(request: Request):
-        return request.app.state.zippy
+    async def service(request: Request):
+        demo = visitor_mode(request)
+        zippy = request.app.state.open_visitor(visitor_id(request, demo), demo=demo)
+        if zippy is None:
+            raise HTTPException(401, "Start a guest session first.")
+        return zippy
+
+    def presenter(zippy=Depends(service)):
+        if not zippy.store.demo:
+            raise HTTPException(403, "Open the Ploy demo to use presenter controls.")
+        return zippy
 
     @app.exception_handler(ValueError)
     async def invalid(_request, error):
@@ -168,6 +256,48 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         return {"status": "ok"}
 
     protected = [Depends(auth)]
+
+    @app.get("/visitor", dependencies=protected)
+    async def get_visitor(request: Request):
+        demo = visitor_mode(request)
+        zippy = request.app.state.open_visitor(visitor_id(request, demo), demo=demo)
+        return {"ready": zippy is not None}
+
+    @app.post("/visitor", dependencies=protected)
+    async def start_visitor(request: Request, response: Response, body: Onboarding | None = None):
+        demo = visitor_mode(request)
+        if request.app.state.open_visitor(visitor_id(request, demo), demo=demo):
+            return {"ready": True}
+        if not demo and body is None:
+            raise HTTPException(422, "Enter a name to start.")
+        profile = None
+        if not demo:
+            profile = {
+                "name": body.name, "location": "", "connections": [],
+                "member_since": datetime.now(timezone.utc).strftime("%b %Y"),
+                "preferences": {"food": body.food, "home": "", "work": "", "budget_thb": body.budget_thb},
+            }
+        token = secrets.token_urlsafe(32)
+        owner = ("demo-" if demo else "guest-") + sha256(token.encode()).hexdigest()
+        request.app.state.open_visitor(owner, demo=demo, profile=profile, create=True)
+        response.set_cookie(visitor_cookie(demo), token, httponly=True, samesite="lax",
+                            secure=settings.secure_cookies or request.url.scheme == "https", max_age=60 * 60 * 24 * 90)
+        return {"ready": True}
+
+    @app.get("/sessions", dependencies=protected)
+    async def sessions(zippy=Depends(service)):
+        return sorted([
+            {"id": session_id, "updated_at": session["updated_at"],
+             "title": next((item["message"][:140] for item in session["timeline"] if item["type"] == "turn"), "Chat")}
+            for session_id, session in zippy.state["sessions"].items() if session.get("timeline")
+        ], key=lambda session: session["updated_at"], reverse=True)
+
+    @app.get("/sessions/{session_id}", dependencies=protected)
+    async def conversation(session_id: str, zippy=Depends(service)):
+        session = zippy.state["sessions"].get(session_id)
+        if session is None or not re.fullmatch(SESSION_ID, session_id):
+            raise HTTPException(404, "Conversation not found.")
+        return {"timeline": session.get("timeline", []), "last_feed_id": len(session["feed"])}
 
     @app.get("/profile", dependencies=protected)
     async def profile(zippy=Depends(service)):
@@ -186,10 +316,19 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     @app.get("/food-log", dependencies=protected)
     async def food_log(date: date | None = None, zippy=Depends(service)):
-        return zippy.food_log(date.isoformat() if date else zippy.state["date"])
+        result = zippy.food_log(date.isoformat() if date else zippy.state["date"])
+        result["meals"] = [public_meal(meal, zippy.photos) for meal in result["meals"]]
+        return result
+
+    def public_meal(meal, photos):
+        result = meal.copy()
+        key = result.pop("photo_key", None)
+        if key and photos:
+            result["photo_url"] = photos.url(key)
+        return result
 
     @app.post("/food-log/photo", dependencies=protected)
-    async def photo(file: UploadFile = File(), session_id: str = "ploy", zippy=Depends(service)):
+    async def photo(file: UploadFile = File(), session_id: SessionQuery = "ploy", zippy=Depends(service)):
         if zippy.photos is None:
             raise HTTPException(503, "Meal photo analysis requires OpenAI and S3 configuration.")
         if not file.content_type or not file.content_type.startswith("image/"):
@@ -198,48 +337,58 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         if len(image) > 10 * 1024 * 1024:
             raise HTTPException(413, "Choose an image under 10 MB.")
         snapshot = zippy.state
+        entry_id = uuid.uuid4().hex
+        key = f"meals/{entry_id}.jpg"
         try:
-            estimate, url = await zippy.photos.read(image)
+            estimate = await zippy.photos.read(image, key)
         except ValueError:
             raise
         except Exception:
             raise HTTPException(502, "Could not analyze the photo.") from None
         async with zippy.mutation:
             if snapshot is not zippy.state:
+                await zippy.photos.discard(key)
                 raise HTTPException(409, "The demo was reset. Upload the photo again.")
-            import uuid
-
-            entry = {"id": uuid.uuid4().hex, "date": zippy.state["date"], "time": zippy.now().strftime("%H:%M"),
-                     "meal": "Meal", "source": "photo", "photo_url": url, **estimate}
+            entry = {"id": entry_id, "date": zippy.state["date"], "time": zippy.now().strftime("%H:%M"),
+                     "meal": "Meal", "source": "photo", "photo_key": key, **estimate}
             zippy.state["food"].append(entry)
             zippy.emit(session_id, {"text": f"Meal logged from your photo: {entry['dish']}, about {entry['protein_g']} g protein."})
-            return entry
+            return public_meal(entry, zippy.photos)
 
     @app.post("/chat", dependencies=protected)
     async def chat(body: ChatBody, zippy=Depends(service)):
+        message = body.message.strip()
+        if not message:
+            raise HTTPException(422, "Enter a message first.")
+
         async def events():
             async with zippy.chat_locks[body.session_id]:
                 session = zippy.session(body.session_id)
-                text = []
+                recorded = []
                 try:
-                    async for event in zippy.chat(body.session_id, body.message.strip()):
-                        if event["type"] == "delta":
-                            text.append(event["text"])
+                    async for event in zippy.chat(body.session_id, message):
+                        if event["type"] == "delta" and recorded and recorded[-1]["type"] == "delta":
+                            recorded[-1]["text"] += event["text"]
+                        else:
+                            recorded.append(event.copy())
                         yield json.dumps(event, ensure_ascii=False) + "\n"
-                    session["history"].extend([{"role": "user", "content": body.message},
-                                               {"role": "assistant", "content": "".join(text)}])
-                    zippy.store.save()
+                    async with zippy.mutation:
+                        text = "".join(item["text"] for item in recorded if item["type"] == "delta")
+                        session["history"].extend([{"role": "user", "content": message},
+                                                   {"role": "assistant", "content": text}])
+                        zippy.record_event(session, type="turn", message=message, events=recorded)
+                        zippy.store.save()
                     yield '{"type":"done"}\n'
                 except Exception as error:
-                    message = str(error) if isinstance(error, ValueError) else "Zippy couldn't complete that request. Try again."
-                    yield json.dumps({"type": "error", "message": message}) + "\n"
+                    detail = str(error) if isinstance(error, ValueError) else "Zippy couldn't complete that request. Try again."
+                    yield json.dumps({"type": "error", "message": detail}) + "\n"
 
         return StreamingResponse(events(), media_type="application/x-ndjson",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/feed", dependencies=protected)
-    async def feed(session_id: str = "ploy", after: int = Query(default=0, ge=0), zippy=Depends(service)):
-        return [item for item in zippy.session(session_id)["feed"] if item["id"] > after]
+    async def feed(session_id: SessionQuery = "ploy", after: int = Query(default=0, ge=0), zippy=Depends(service)):
+        return [item for item in zippy.state["sessions"].get(session_id, {}).get("feed", []) if item["id"] > after]
 
     @app.post("/actions/buy", dependencies=protected)
     async def buy(body: BuyBody, zippy=Depends(service)):
@@ -254,23 +403,24 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         return await zippy.order_status(body.session_id, body.order_id, cancel=True)
 
     @app.get("/shopee-orders/{order_id}", dependencies=protected)
-    async def order_status(order_id: str, session_id: str = "ploy", zippy=Depends(service)):
+    async def order_status(order_id: str, session_id: SessionQuery = "ploy", zippy=Depends(service)):
         return await zippy.order_status(session_id, order_id)
 
     @app.get("/bookings/{booking_id}", dependencies=protected)
-    async def booking_status(booking_id: str, session_id: str = "ploy", zippy=Depends(service)):
+    async def booking_status(booking_id: str, session_id: SessionQuery = "ploy", zippy=Depends(service)):
         booking = zippy.state["bookings"].get(booking_id)
         if not booking or booking["session_id"] != session_id:
             raise HTTPException(404, "Booking not found.")
         return {key: booking[key] for key in ("id", "status", "duration_s", "quote", "restaurant_name", "time")}
 
     @app.post("/proactive", dependencies=protected)
-    async def proactive(body: ProactiveBody, zippy=Depends(service)):
+    async def proactive(body: ProactiveBody, request: Request):
+        zippy = request.app.state.zippy
         await zippy.proactive(body.moment, body.session_id)
         return {"status": "ok"}
 
     @app.post("/demo/trigger", dependencies=protected)
-    async def trigger(body: TriggerBody, zippy=Depends(service)):
+    async def trigger(body: TriggerBody, zippy=Depends(presenter)):
         if body.moment and not body.reminder:
             await zippy.proactive(body.moment, body.session_id, demo=True)
         elif body.reminder and not body.moment:
@@ -283,22 +433,23 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         return {"status": "ok"}
 
     @app.post("/demo/reset", dependencies=protected)
-    async def reset(zippy=Depends(service)):
+    async def reset(zippy=Depends(presenter)):
         if any(lock.locked() for lock in zippy.chat_locks.values()):
             raise HTTPException(409, "Wait for the current chat reply before resetting.")
         await zippy.reset()
         return {"status": "ok"}
 
     @app.post("/call-status")
-    async def call_status(request: Request, booking_id: str, zippy=Depends(service)):
-        phone = zippy.phone
+    async def call_status(request: Request, booking_id: str):
+        phone = request.app.state.zippy.phone
         if not hasattr(phone, "validator"):
             raise HTTPException(403, "Twilio is disabled.")
         fields = await request.form()
         url = phone.public_url + "/call-status?" + request.url.query
         if not phone.validator.validate(url, fields, request.headers.get("X-Twilio-Signature", "")):
             raise HTTPException(403, "Invalid Twilio signature.")
-        booking = zippy.state["bookings"].get(booking_id)
+        zippy = request.app.state.booking_service(booking_id)
+        booking = zippy.state["bookings"].get(booking_id) if zippy else None
         if not booking or not fields.get("CallSid") or booking["call_sid"] not in (None, fields["CallSid"]):
             raise HTTPException(404, "Unknown call.")
         if fields.get("CallStatus") in {"no-answer", "busy", "failed"} or str(fields.get("AnsweredBy", "")).startswith("machine"):
@@ -313,8 +464,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     @app.websocket("/media-stream")
     @app.websocket("/media-stream/")
     async def media_stream(socket: WebSocket):
-        zippy = socket.app.state.zippy
-        phone = zippy.phone
+        phone = socket.app.state.zippy.phone
         signature = socket.headers.get("X-Twilio-Signature", "")
         if not hasattr(phone, "validator") or not any(
             phone.validator.validate(url, {}, signature) for url in (phone.media_url, phone.media_url + "/")
@@ -331,6 +481,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                         return
             start = packet["start"]
             params = start["customParameters"]
+            zippy = socket.app.state.booking_service(params.get("booking_id"))
+            if zippy is None:
+                await socket.close(code=1008)
+                return
             booking = zippy.state["bookings"].get(params.get("booking_id"))
             if not booking or params.get("purpose") != "book_table" or booking["status"] != "calling" or booking["call_sid"] not in (None, start["callSid"]):
                 await socket.close(code=1008)

@@ -1,5 +1,5 @@
 FROM caddy:2-alpine
 
 COPY Caddyfile /etc/caddy/Caddyfile
-COPY index.html styles.css reference.css app.js services.js voice.js /srv/
+COPY index.html presenter.html styles.css reference.css presenter.css app.js services.js voice.js pages.js markdown.js push.js presenter.js sw.js manifest.webmanifest /srv/
 COPY assets /srv/assets/

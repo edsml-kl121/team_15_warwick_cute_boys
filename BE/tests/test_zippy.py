@@ -58,9 +58,13 @@ class FakePhone:
 
 
 class FakePhotos:
-    async def read(self, image):
+    async def read(self, image, key):
         assert image == b"photo"
-        return {"dish": "Rice and chicken", "kcal": 350, "protein_g": 28, "carbs_g": 32, "fat_g": 12}, "https://example.test/photo"
+        assert key.startswith("meals/") and key.endswith(".jpg")
+        return {"dish": "Rice and chicken", "kcal": 350, "protein_g": 28, "carbs_g": 32, "fat_g": 12}
+
+    def url(self, key):
+        return f"https://example.test/{key}"
 
 
 @contextmanager
@@ -69,9 +73,13 @@ def demo(tmp_path, **options):
     settings.token = "test-token"
     settings.directory = tmp_path
     settings.use_ai = False
+    settings.mongo_url = None
+    settings.secure_cookies = False
     fake = FakeShopee()
     app = create_app(settings=settings, shopee=fake, phone=FakePhone(), photos=FakePhotos(), **options)
-    with TestClient(app, headers={"Authorization": "Bearer test-token"}) as client:
+    with TestClient(app, headers={"Authorization": "Bearer test-token", "X-Zippy-Demo": "1"}) as client:
+        assert client.get("/today").status_code == 401
+        assert client.post("/visitor").json() == {"ready": True}
         yield client, fake
 
 
@@ -141,7 +149,9 @@ def test_photo_reset_and_access_checks(tmp_path):
         except WebSocketDisconnect as error:
             assert error.code == 1008
         photo = client.post("/food-log/photo", files={"file": ("meal.jpg", b"photo", "image/jpeg")})
+        assert photo.is_success
         assert photo.json()["source"] == "photo"
+        assert photo.json()["photo_url"].startswith("https://example.test/meals/")
         assert client.get("/food-log").json()["totals"]["protein_g"] == 78
         say(client, "Show me options")
         assert client.post("/actions/buy", json={"item_id": "p_eyemask"}).is_success

@@ -6,10 +6,20 @@
   <meta name="theme-color" content="#fbfaf7">
   <meta name="zippy-api" content="./api/">
   <title>Zippy</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+  <link rel="icon" href="./assets/icon-192.png" type="image/png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Zippy">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="./reference.css">
   <link rel="stylesheet" href="./styles.css">
   <script defer src="./services.js"></script>
   <script defer src="./voice.js"></script>
+  <script defer src="./markdown.js"></script>
+  <script defer src="./pages.js"></script>
+  <script defer src="./push.js"></script>
   <script defer src="./app.js"></script>
 </head>
 <body>
@@ -18,7 +28,7 @@
       <button type="button" class="ib" data-action="open-history" aria-label="Chat history" aria-haspopup="dialog">
         <i class="material-icons" aria-hidden="true">menu</i>
       </button>
-      <div class="brand"><img class="av" src="./assets/zippy-face.png" alt=""><h1>Zippy</h1></div>
+      <div class="brand"><img class="av" src="./assets/zippy-face.png" alt=""><div><h1>Zippy</h1><span class="header-status" role="status">Online</span></div></div>
       <button type="button" class="ib" data-action="new-chat" aria-label="New chat">
         <i class="material-icons" aria-hidden="true">edit_square</i>
       </button>
@@ -56,6 +66,18 @@
         <span class="visually-hidden voice-status" role="status"></span>
       </div>
     </footer>
+    <section class="page" data-page="today" aria-label="Today" hidden></section>
+    <section class="page" data-page="food" aria-label="Food log" hidden></section>
+    <section class="page" data-page="profile" aria-label="Profile" hidden></section>
+    <section class="page" data-page="apps" aria-label="Connect apps" hidden></section>
+    <div class="lock-screen lock" hidden>
+      <p class="lock-date"></p>
+      <p class="lock-time"></p>
+      <button type="button" class="nt" data-action="open-notification">
+        <img class="av" src="./assets/zippy-face.png" alt="" width="36" height="36">
+        <span><b class="lock-title"></b><span class="lock-body"></span></span>
+      </button>
+    </div>
   </main>
   <dialog class="history-modal" aria-labelledby="history-title">
     <div class="history-scrim" data-action="close-history"></div>
@@ -66,10 +88,42 @@
           <i class="material-icons" aria-hidden="true">close</i>
         </button>
       </header>
+      <nav class="drawer-nav" aria-label="Pages">
+        <a href="#today" data-action="close-history"><i class="material-icons" aria-hidden="true">today</i>Today</a>
+        <a href="#food" data-action="close-history"><i class="material-icons" aria-hidden="true">restaurant</i>Food log</a>
+        <a href="#profile" data-action="close-history"><i class="material-icons" aria-hidden="true">person</i>Profile</a>
+        <a href="#apps" data-action="close-history"><i class="material-icons" aria-hidden="true">apps</i>Connect apps</a>
+      </nav>
       <button type="button" class="btn" data-action="new-chat">New chat</button>
       <p class="history-empty">Your conversations will appear here.</p>
       <ul class="history-list"></ul>
+      <div class="push-box">
+        <button type="button" class="btn2" data-action="enable-push"><i class="material-icons" aria-hidden="true">notifications</i>Turn on notifications</button>
+        <p class="mut push-hint" role="status"></p>
+      </div>
+      <a class="chip demo-entry" href="./?demo=ploy" hidden>Open Ploy demo</a>
+      <details class="demo-controls" hidden>
+        <summary>Presenter</summary>
+        <button type="button" class="chip" data-action="demo" data-moment="morning_sleep">Morning sleep</button>
+        <button type="button" class="chip" data-action="demo" data-moment="dinner_tip">Dinner tip</button>
+        <button type="button" class="chip" data-action="demo" data-moment="daily_summary">Daily summary</button>
+        <button type="button" class="chip" data-action="demo-reset">Reset demo</button>
+        <a class="chip presenter-link" href="./presenter.html" target="_blank" rel="noopener">Open presenter dashboard</a>
+      </details>
     </aside>
+  </dialog>
+  <dialog class="onboarding-dialog" aria-labelledby="onboarding-title">
+    <h2 id="onboarding-title">Welcome to Zippy</h2>
+    <p class="mut onboarding-description">Get started with a display name. You’ll try Zippy with sample sleep, recovery, and activity data.</p>
+    <form class="onboarding-form">
+      <label>Display name<input name="name" autocomplete="nickname" maxlength="60" required></label>
+      <label>Food preferences <span class="mut">(optional)</span><input name="food" maxlength="240" placeholder="e.g. Thai food, mild spice"></label>
+      <label>Budget per meal <span class="mut">(optional, THB)</span><input name="budget" type="number" inputmode="numeric" min="1" max="10000" placeholder="300"></label>
+      <button class="btn" type="submit">Start as a guest</button>
+    </form>
+    <p class="onboarding-status mut" role="status" hidden></p>
+    <button class="btn2 onboarding-retry" type="button" hidden>Try again</button>
+    <a class="chip demo-entry" href="./?demo=ploy">Open Ploy demo</a>
   </dialog>
   <input type="file" id="meal-photo" accept="image/*" hidden>
   <dialog class="order-dialog" aria-labelledby="order-title">
@@ -82,6 +136,15 @@
     <div class="order-details"></div>
     <button type="button" class="sbtn" data-action="checkout">Continue to ShopeePay</button>
     <a class="sbtn order-link" target="_blank" rel="noopener noreferrer" hidden>Open ShopeePay</a>
+  </dialog>
+  <dialog class="consent-dialog" aria-labelledby="consent-title">
+    <form method="dialog" class="consent-form">
+      <span class="grabber" aria-hidden="true"></span>
+      <div class="consent-head"><img class="consent-logo" alt=""><div><h2 id="consent-title"></h2><p class="mut">Choose what Zippy can read</p></div></div>
+      <div class="card consent-items"></div>
+      <p class="mut consent-note"><i class="material-icons" aria-hidden="true">lock</i>Read-only. You can turn any of these off or disconnect at any time.</p>
+      <div class="consent-actions"><button type="submit" class="btn" value="allow">Allow</button><button type="submit" class="btn2" value="cancel">Not now</button></div>
+    </form>
   </dialog>
   <p id="feedback" role="status"></p>
   <noscript>Zippy needs JavaScript to open the chat.</noscript>

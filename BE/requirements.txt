@@ -8,3 +8,4 @@ python-multipart>=0.0.22,<1
 boto3>=1,<2
 httpx==0.28.1
 pillow>=11,<13
+pymongo>=4,<5

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="zippy-api" content="./api/">
+  <meta name="robots" content="noindex">
+  <title>Zippy presenter</title>
+  <link rel="icon" href="./assets/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="./reference.css">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./presenter.css">
+  <script defer src="./services.js"></script>
+  <script defer src="./presenter.js"></script>
+</head>
+<body class="presenter">
+  <main class="pr">
+    <header class="pr-head">
+      <img class="av" src="./assets/zippy-face.png" alt="" width="44" height="44">
+      <div>
+        <h1>Presenter</h1>
+        <p class="mut">Fire each demo moment. Zippy posts it to the chat and, once the server sends web push, to the phone’s lock screen.</p>
+      </div>
+    </header>
+
+    <section class="card pr-card" aria-labelledby="target-title">
+      <h2 id="target-title">Target chat</h2>
+      <label class="pr-field">
+        <span class="lbl">Session ID</span>
+        <input id="session" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9_-]{1,80}" placeholder="Open from the app’s Presenter menu to fill this in">
+      </label>
+      <p class="mut">On the phone: menu › Presenter › Open presenter dashboard.</p>
+    </section>
+
+    <section aria-labelledby="flows-title">
+      <h2 id="flows-title" class="sec">Trigger flows</h2>
+      <ul class="pr-flows"></ul>
+    </section>
+
+    <section class="card pr-card" aria-labelledby="reset-title">
+      <h2 id="reset-title">Reset</h2>
+      <p class="mut">Clears chats, orders, bookings and reminders on the server so the demo can start again.</p>
+      <button type="button" class="btn2" data-action="reset">Reset demo</button>
+    </section>
+
+    <section aria-labelledby="log-title">
+      <h2 id="log-title" class="sec">Activity</h2>
+      <ol class="pr-log" role="log" aria-live="polite"></ol>
+    </section>
+  </main>
+  <noscript>The presenter dashboard needs JavaScript.</noscript>
+</body>
+</html>

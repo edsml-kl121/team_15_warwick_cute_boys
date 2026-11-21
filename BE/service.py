@@ -37,12 +37,22 @@ class Zippy:
     def session(self, session_id):
         return self.state["sessions"].setdefault(session_id, {
             "feed": [], "history": [], "moments": [], "products": [], "places": [], "pending": None,
+            "timeline": [], "updated_at": self.now().isoformat(),
         })
 
+    def record_event(self, session, **event):
+        timeline = session.setdefault("timeline", [])
+        at = self.now().isoformat()
+        session["updated_at"] = at
+        timeline.append({"seq": len(timeline) + 1, "at": at, **event})
+
     def emit(self, session_id, *items):
-        feed = self.session(session_id)["feed"]
+        session = self.session(session_id)
+        feed = session["feed"]
         for item in items:
-            feed.append({"id": len(feed) + 1, "at": self.now().isoformat(), "role": "assistant", **item})
+            entry = {"id": len(feed) + 1, "at": self.now().isoformat(), "role": "assistant", **item}
+            feed.append(entry)
+            self.record_event(session, type="feed", item=entry)
         self.store.save()
 
     def sleep_card(self):
@@ -56,9 +66,9 @@ class Zippy:
         goals = self.state["profile"]["goals"]
         data = self.health.today(self.state, date)
         activity = {**data["activity"], "steps_goal_pct": round(100 * data["activity"]["steps"] / goals["steps"])}
-        return {"date": date, "now": self.now().isoformat(), **data, "activity": activity, "goals": goals,
+        return {"date": date, "now": self.now().isoformat(), "demo_data": True, **data, "activity": activity, "goals": goals,
                 "totals": self.food_log(date)["totals"],
-                "upcoming": [{"at": "18:15", "message": "Dinner idea"}] + [
+                "upcoming": ([{"at": "18:15", "message": "Dinner idea"}] if self.store.demo else []) + [
                     {"at": order["arrival_date"], "message": "Shopee Mall eye mask delivery"}
                     for order in self.state["orders"].values() if order["status"] == "paid"
                 ] + [{"at": item["at"][-5:], "message": item["message"]}
@@ -67,7 +77,7 @@ class Zippy:
     def food_log(self, date):
         meals = [meal for meal in self.state["food"] if meal["date"] == date]
         return {"date": date, "meals": meals, "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
-                "suggested": DINNER if date == self.state["date"] else None}
+                "suggested": DINNER if self.store.demo and date == self.state["date"] else None}
 
     def summary(self):
         today = self.today()
@@ -141,7 +151,7 @@ class Zippy:
         pending = session["pending"]
         if answer == "not now":
             session["pending"] = None
-            yield {"type": "delta", "text": "Of course, Ploy."}
+            yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}
         elif answer == "show me options":
             yield {"type": "tool", "name": "search_products"}
             results = await self.shopee.call("search_products", query="eye mask")
@@ -186,6 +196,16 @@ class Zippy:
         elif any(word in answer for word in ("step", "walk", "activity")):
             yield {"type": "delta", "text": "Here's your activity so far today."}
             yield {"type": "card", "card": {"kind": "activity", **self.today()["activity"]}}
+        elif not self.store.demo and any(word in answer for word in ("dinner", "recommend", "suggest")):
+            today = self.today()
+            profile = self.state["profile"]
+            protein_left = max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"])
+            preferences = profile["preferences"]
+            focus = f"You have {protein_left} g to go on your protein goal." if protein_left else "You've met your protein goal."
+            taste = f" Use your food preferences ({preferences['food']}) to narrow it down." if preferences["food"] else ""
+            yield {"type": "delta", "text": (
+                f"{focus} Look for a meal with a protein source and vegetables within ฿{preferences['budget_thb']}.{taste}"
+            )}
         elif any(word in answer for word in ("protein", "calorie", "food", "meal")):
             today = self.today()
             yield {"type": "delta", "text": f"You've logged {today['totals']['protein_g']} g of protein and {today['totals']['kcal']:,} kcal today."}

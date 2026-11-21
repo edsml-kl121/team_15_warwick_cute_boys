@@ -64,3 +64,33 @@ The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add
 - Submit a question and confirm that streamed text, product cards, and quick replies appear from the API. An empty search must leave the conversation without a product card. An error must offer Retry.
 - Review a sandbox product and confirm that the quote uses backend prices. Complete payment only through the hosted provider. Confirm that the receipt appears once, after backend verification.
 - Review the selected backend’s source configuration before connecting personal data. Keep account storage and authentication on the server.
+
+## Dashboard pages
+
+The Today, Food log, Profile and Connect apps pages read `GET /today`, `GET /food-log?date=YYYY-MM-DD` and `GET /profile`. Connect apps writes the whole profile back with `PUT /profile`, adding or updating one `{app, connected, shares}` entry. The app catalog (descriptions, logos and what each app can share) lives in `pages.js`. Connection state comes only from the backend.
+
+Feed items may carry `notify: {title, body}`, which shows the simulated lock screen, and `header_status` (`online`, `calling`, `in_call`), which updates the chat header.
+
+## Presenter dashboard
+
+`presenter.html?session=<session_id>` lists every trigger flow: morning sleep, eye mask reminder (22:30), dinner tip, time to walk to dinner (leave-by time) and daily summary, plus reset. It calls the existing `POST /demo/trigger` with `{session_id, moment}` or `{session_id, reminder: "HH:MM"}` and `POST /demo/reset`. Open it from the app menu under Presenter so the session ID is filled in. **Preview here** shows sample copy as a local notification without the backend.
+
+The Caddy proxy adds the server token to demo routes. Anyone who can reach the frontend can trigger or reset the demo. Restrict the frontend URL or remove the demo routes from the Caddy matcher outside rehearsals.
+
+## Web push (backend work needed)
+
+The frontend is ready: the app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen. The backend needs:
+
+1. **VAPID keys.** Generate a key pair once and keep the private key in an environment variable, such as `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT=mailto:team@example.com`.
+2. **`GET /push/key`** returns `{"public_key": "<base64url VAPID public key>"}`.
+3. **`POST /push/subscribe`** accepts `{session_id, subscription: {endpoint, expirationTime, keys: {p256dh, auth}}}`. Store subscriptions per session and deduplicate by `endpoint`. The browser posts again whenever a chat first connects, so one device can belong to several sessions.
+4. **Send.** Whenever a feed item with `notify` is emitted, send a push to that session's subscriptions, for example with `pywebpush`. Use this payload, which `sw.js` reads:
+
+   ```json
+   {"title": "Dinner tip", "body": "You're 40 g short on protein today…", "url": "./", "tag": "dinner_tip"}
+   ```
+
+   The service worker shows `Zippy · <title>` and opens `url` on tap. Use a same-origin relative URL. Delete a subscription when the push service answers 404 or 410.
+5. **Proxy.** The Caddyfile already forwards `/api/push/*` with the server token.
+
+Until these routes exist, **Turn on notifications** reports that it couldn't turn notifications on. Chat, pages and the in-app lock screen work without push.
