@@ -1,1 +1,0 @@
-"""Shopee simulator application."""

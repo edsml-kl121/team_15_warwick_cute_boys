@@ -1,0 +1,931 @@
+[
+  {
+    "name": "Easy Health",
+    "branch": "Sathorn",
+    "address": "50/1 Soi Phiphat, Sathorn 8, North Sathorn Road, Silom, Bang Rak, Bangkok 10500",
+    "phone": "+16502013595",
+    "lat": 13.7229,
+    "lng": 100.5312,
+    "cuisine": "healthy",
+    "rating": 4.9,
+    "source_urls": [
+      "https://easyhealth.asia/menu",
+      "https://easyhealth.asia/find-a-store?store=sathorn",
+      "https://www.wongnai.com/restaurants/2437673nN",
+      "https://www.wongnai.com/delivery/businesses/2437673nN/order"
+    ],
+    "notes": "Calories, protein, carbs and fat are published by the restaurant on its menu page; sodium is not published and is our estimate. Prices are the official easyhealth.asia menu prices (Nov 2026); LINE MAN/Wongnai delivery prices are higher (e.g. Salmon Teriyaki 429 vs 395). Rating is Wongnai (38 reviews).",
+    "menu": [
+      {
+        "name": "Free-range Chicken Fitness Meal",
+        "name_th": null,
+        "price_thb": 219,
+        "calories": 377,
+        "protein_g": 63,
+        "carbs_g": 17,
+        "fat_g": 6,
+        "sodium_mg": 450,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      },
+      {
+        "name": "Free-range Chicken Teriyaki",
+        "name_th": null,
+        "price_thb": 175,
+        "calories": 516,
+        "protein_g": 57,
+        "carbs_g": 56,
+        "fat_g": 7,
+        "sodium_mg": 850,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      },
+      {
+        "name": "Atlantic Salmon Teriyaki",
+        "name_th": null,
+        "price_thb": 395,
+        "calories": 576,
+        "protein_g": 50,
+        "carbs_g": 47,
+        "fat_g": 21,
+        "sodium_mg": 900,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      },
+      {
+        "name": "Tsunami Bowl (chicken, riceberry, teriyaki)",
+        "name_th": null,
+        "price_thb": 149,
+        "calories": 283,
+        "protein_g": 32,
+        "carbs_g": 28,
+        "fat_g": 5,
+        "sodium_mg": 600,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      },
+      {
+        "name": "Caesar Salad (sous-vide chicken)",
+        "name_th": null,
+        "price_thb": 265,
+        "calories": 490,
+        "protein_g": 45,
+        "carbs_g": 19,
+        "fat_g": 26,
+        "sodium_mg": 1000,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      },
+      {
+        "name": "Pad Thai (glass or keto noodles)",
+        "name_th": null,
+        "price_thb": 159,
+        "calories": 605,
+        "protein_g": 38,
+        "carbs_g": 82,
+        "fat_g": 14,
+        "sodium_mg": 1300,
+        "nutrition_source": "official",
+        "nutrition_url": "https://easyhealth.asia/menu",
+        "sodium_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Salad Factory",
+    "branch": "Silom Complex (B floor)",
+    "address": "Silom Complex, 191 Silom Rd, Silom, Bang Rak, Bangkok 10500",
+    "phone": "+16502013595",
+    "lat": 13.7285,
+    "lng": 100.5348,
+    "cuisine": "healthy",
+    "rating": 4.1,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/2998084XW/order",
+      "https://www.wongnai.com/restaurants/2998084XW"
+    ],
+    "notes": "Prices from the branch's official LINE MAN/Wongnai delivery menu (Nov 2026). Salad Factory publishes no nutrition data; all values are estimates.",
+    "menu": [
+      {
+        "name": "Caesar Salad with Grilled Chicken Breast and Bacon",
+        "name_th": "ซีซาร์สลัดอกไก่ย่างและเบคอน",
+        "price_thb": 220,
+        "calories": 480,
+        "protein_g": 35,
+        "carbs_g": 18,
+        "fat_g": 30,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Japanese Sesame Grilled Chicken Breast Salad",
+        "name_th": "สลัดอกไก่ย่างงาญี่ปุ่น",
+        "price_thb": 170,
+        "calories": 380,
+        "protein_g": 30,
+        "carbs_g": 20,
+        "fat_g": 20,
+        "sodium_mg": 800,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Salt-Grilled Salmon Salad with Seafood Dressing",
+        "name_th": "สลัดปลาแซลมอนย่างเกลือ น้ำสลัดซีฟู้ด",
+        "price_thb": 335,
+        "calories": 450,
+        "protein_g": 32,
+        "carbs_g": 15,
+        "fat_g": 28,
+        "sodium_mg": 700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Grilled Salmon Kirimi Multigrain Rice Set with Wakame Soup",
+        "name_th": "เซตข้าวปลาแซลมอนคิริมิย่าง และซุปใสวากาเมะ",
+        "price_thb": 285,
+        "calories": 560,
+        "protein_g": 30,
+        "carbs_g": 65,
+        "fat_g": 18,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Northern Larb Grilled Chicken Breast Wrap (L)",
+        "name_th": "แรพลาบคั่วเหนืออกไก่ย่าง (L)",
+        "price_thb": 159,
+        "calories": 420,
+        "protein_g": 30,
+        "carbs_g": 45,
+        "fat_g": 12,
+        "sodium_mg": 900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Cobb Salad with California Cheese",
+        "name_th": "คอบบ์สลัดและแคลิฟอร์เนียชีส",
+        "price_thb": 250,
+        "calories": 560,
+        "protein_g": 32,
+        "carbs_g": 25,
+        "fat_g": 38,
+        "sodium_mg": 1000,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "MK Restaurants",
+    "branch": "Silom Complex",
+    "address": "Silom Complex, B floor room B14, 191 Silom Rd, Silom, Bang Rak, Bangkok 10500",
+    "phone": "+16502013595",
+    "lat": 13.7283,
+    "lng": 100.5351,
+    "cuisine": "suki",
+    "rating": 4.0,
+    "source_urls": [
+      "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+      "https://mkrestaurant.com/en/mk-menu/suki?p=1",
+      "https://www.wongnai.com/restaurants/3798225ar"
+    ],
+    "notes": "Prices and calories are from MK's official site (mkrestaurant.com), which publishes calories only; protein/carbs/fat/sodium are estimates. MK's published calorie figures are internally inconsistent in places (same dish listed with different values; soup and no-soup versions identical), so treat them as indicative. Branch delivery menu not verified on Wongnai (no delivery listing found); MK delivers via its own 1642 service. Wongnai rating is based on 1 review.",
+    "menu": [
+      {
+        "name": "Seafood Suki (Soup)",
+        "name_th": "สุกี้ทะเลน้ำ",
+        "price_thb": 142,
+        "calories": 239,
+        "protein_g": 22,
+        "carbs_g": 22,
+        "fat_g": 6,
+        "sodium_mg": 1500,
+        "nutrition_source": "estimated",
+        "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+        "calories_source": "official"
+      },
+      {
+        "name": "XO Sauce Noodles with Crispy Pork",
+        "name_th": "บะหมี่ซอส XO หมูกรอบ",
+        "price_thb": 113,
+        "calories": 520,
+        "protein_g": 20,
+        "carbs_g": 55,
+        "fat_g": 24,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+        "calories_source": "official"
+      },
+      {
+        "name": "XO Sauce Noodles with Roasted Duck",
+        "name_th": "บะหมี่ซอส XO เป็ดย่าง",
+        "price_thb": 118,
+        "calories": 501,
+        "protein_g": 22,
+        "carbs_g": 55,
+        "fat_g": 21,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+        "calories_source": "official"
+      },
+      {
+        "name": "Green Noodles with Roasted Duck and Crispy Pork (Soup)",
+        "name_th": "บะหมี่หยกเป็ดย่างหมูกรอบน้ำ",
+        "price_thb": 109,
+        "calories": 345,
+        "protein_g": 20,
+        "carbs_g": 35,
+        "fat_g": 14,
+        "sodium_mg": 1400,
+        "nutrition_source": "estimated",
+        "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+        "calories_source": "official"
+      },
+      {
+        "name": "Green Noodles with Steamed Spare Ribs (Soup)",
+        "name_th": "บะหมี่หยกซี่โครงหมูนึ่งน้ำ",
+        "price_thb": 98,
+        "calories": 221,
+        "protein_g": 15,
+        "carbs_g": 25,
+        "fat_g": 7,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
+        "calories_source": "official"
+      }
+    ]
+  },
+  {
+    "name": "Go-Ang Kaomunkai Pratunam",
+    "branch": "Pratunam 2 (Ratchadamri)",
+    "address": "17 Chaloem Lok Bridge foot, Ratchadamri Rd, Lumphini, Pathum Wan, Bangkok 10330",
+    "phone": "+16502013595",
+    "lat": 13.7489,
+    "lng": 100.541,
+    "cuisine": "thai",
+    "rating": 4.3,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/706814fA/order",
+      "https://www.wongnai.com/restaurants/706814fA",
+      "https://www.wongnai.com/chains/goangkaomunkai"
+    ],
+    "notes": "Used the Pratunam 2 (Ratchadamri) branch because it has a verified delivery menu; the original shop at 960-962 Phetchaburi Rd (Wongnai 21Th, approx 13.7503,100.5413) has no delivery listing on Wongnai. Prices are the official LINE MAN/Wongnai delivery menu (Nov 2026). Nutrition estimated.",
+    "menu": [
+      {
+        "name": "Hainanese Chicken Rice (regular)",
+        "name_th": "ข้าวมันไก่ ธรรมดา",
+        "price_thb": 65,
+        "calories": 550,
+        "protein_g": 25,
+        "carbs_g": 70,
+        "fat_g": 18,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Hainanese Chicken Rice (special)",
+        "name_th": "ข้าวมันไก่ พิเศษ",
+        "price_thb": 95,
+        "calories": 700,
+        "protein_g": 35,
+        "carbs_g": 80,
+        "fat_g": 25,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Fried Chicken Rice (special)",
+        "name_th": "ข้าวมันไก่ทอด พิเศษ",
+        "price_thb": 95,
+        "calories": 850,
+        "protein_g": 35,
+        "carbs_g": 85,
+        "fat_g": 40,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Mixed Boiled and Fried Chicken Rice (special)",
+        "name_th": "ข้าวมันไก่ ผสม",
+        "price_thb": 95,
+        "calories": 780,
+        "protein_g": 35,
+        "carbs_g": 82,
+        "fat_g": 32,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Bitter Gourd and Pork Rib Soup",
+        "name_th": "มะระตุ๋นซี่โครงหมู",
+        "price_thb": 75,
+        "calories": 180,
+        "protein_g": 14,
+        "carbs_g": 8,
+        "fat_g": 10,
+        "sodium_mg": 900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Chicken Bone Soup",
+        "name_th": "ซุปกระดูกไก่",
+        "price_thb": 35,
+        "calories": 60,
+        "protein_g": 5,
+        "carbs_g": 2,
+        "fat_g": 3,
+        "sodium_mg": 700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Som Tam Nua",
+    "branch": "Siam Square Soi 5",
+    "address": "392/12-13 Siam Square Soi 5, Pathum Wan, Bangkok 10330",
+    "phone": "+16502013595",
+    "lat": 13.7448,
+    "lng": 100.5348,
+    "cuisine": "thai_isan",
+    "rating": 3.7,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/3611Xj/order",
+      "https://www.wongnai.com/restaurants/3611Xj"
+    ],
+    "notes": "Prices from the branch's official LINE MAN/Wongnai delivery menu (Nov 2026). Rating is Wongnai (284 reviews). Nutrition estimated. Fried chicken (L) is a shareable plate.",
+    "menu": [
+      {
+        "name": "Som Tam Thai with Salted Egg",
+        "name_th": "ส้มตำไทยไข่เค็ม",
+        "price_thb": 100,
+        "calories": 220,
+        "protein_g": 8,
+        "carbs_g": 30,
+        "fat_g": 8,
+        "sodium_mg": 1400,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Som Tam with Salted Crab",
+        "name_th": "ส้มตำปู",
+        "price_thb": 95,
+        "calories": 120,
+        "protein_g": 6,
+        "carbs_g": 22,
+        "fat_g": 2,
+        "sodium_mg": 1700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Chicken Larb",
+        "name_th": "ลาบไก่",
+        "price_thb": 135,
+        "calories": 250,
+        "protein_g": 28,
+        "carbs_g": 10,
+        "fat_g": 11,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Grilled Pork Jowl Namtok",
+        "name_th": "น้ำตกคอหมูย่าง",
+        "price_thb": 155,
+        "calories": 450,
+        "protein_g": 22,
+        "carbs_g": 10,
+        "fat_g": 35,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Deep Fried Chicken (L)",
+        "name_th": "ไก่ทอดใหญ่",
+        "price_thb": 185,
+        "calories": 800,
+        "protein_g": 55,
+        "carbs_g": 25,
+        "fat_g": 52,
+        "sodium_mg": 1400,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Sticky Rice",
+        "name_th": "ข้าวเหนียว",
+        "price_thb": 25,
+        "calories": 330,
+        "protein_g": 7,
+        "carbs_g": 73,
+        "fat_g": 1,
+        "sodium_mg": 5,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Jok Prince",
+    "branch": "Bang Rak (Charoen Krung)",
+    "address": "1391 Charoen Krung Rd, Silom, Bang Rak, Bangkok 10500",
+    "phone": "+16502013595",
+    "lat": 13.7208,
+    "lng": 100.5162,
+    "cuisine": "thai",
+    "rating": 3.8,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/3606XJ/order",
+      "https://www.wongnai.com/restaurants/3606XJ",
+      "https://guide.michelin.com/th/en/article/features/why-bangkok-is-a-street-food-capital-and-these-are-street-bites-to-try"
+    ],
+    "notes": "Michelin Bib Gourmand (2019-2023). Prices from the official LINE MAN/Wongnai delivery menu (Nov 2026); congee can be ordered with or without offal. Nutrition estimated.",
+    "menu": [
+      {
+        "name": "Pork Congee",
+        "name_th": "โจ๊กหมู",
+        "price_thb": 67,
+        "calories": 300,
+        "protein_g": 18,
+        "carbs_g": 40,
+        "fat_g": 7,
+        "sodium_mg": 1000,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pork Congee with Century Egg",
+        "name_th": "โจ๊กหมู+ไข่เยี่ยวม้า",
+        "price_thb": 94,
+        "calories": 370,
+        "protein_g": 23,
+        "carbs_g": 41,
+        "fat_g": 12,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pork Congee with Two Chicken Eggs",
+        "name_th": "โจ๊กหมู ไข่ไก่คู่",
+        "price_thb": 94,
+        "calories": 450,
+        "protein_g": 30,
+        "carbs_g": 41,
+        "fat_g": 17,
+        "sodium_mg": 1150,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pork Congee with Century Egg and Chicken Egg",
+        "name_th": "โจ๊กหมู ไข่เยี่ยวม้า+ไข่ไก่",
+        "price_thb": 104,
+        "calories": 450,
+        "protein_g": 29,
+        "carbs_g": 41,
+        "fat_g": 17,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pork Soup without Rice (Kao Lao)",
+        "name_th": "เกาเหลาหมู (ไม่มีเนื้อโจ๊ก)",
+        "price_thb": 80,
+        "calories": 200,
+        "protein_g": 22,
+        "carbs_g": 3,
+        "fat_g": 10,
+        "sodium_mg": 1000,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Thipsamai Pad Thai Pratu Phi",
+    "branch": "Pratu Phi (original)",
+    "address": "313-315 Maha Chai Rd, Samran Rat, Phra Nakhon, Bangkok 10200",
+    "phone": "+16502013595",
+    "lat": 13.7528,
+    "lng": 100.5048,
+    "cuisine": "thai",
+    "rating": 3.8,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/2239ot/order",
+      "https://www.wongnai.com/restaurants/2239ot"
+    ],
+    "notes": "About 3.9 km from Silom. Wongnai lists the street address as 315 Maha Chai Rd. Prices from the official LINE MAN/Wongnai delivery menu (Nov 2026). Rating is Wongnai (690 reviews). Nutrition estimated.",
+    "menu": [
+      {
+        "name": "Pad Thai with Egg (plain)",
+        "name_th": "ผัดไทย เส้นจันท์ ธรรมดา ใส่ไข่",
+        "price_thb": 90,
+        "calories": 600,
+        "protein_g": 18,
+        "carbs_g": 80,
+        "fat_g": 22,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pad Thai with Shrimp Oil and Egg",
+        "name_th": "ผัดไทย เส้นจันท์ มันกุ้ง ใส่ไข่",
+        "price_thb": 105,
+        "calories": 680,
+        "protein_g": 18,
+        "carbs_g": 82,
+        "fat_g": 30,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pad Thai with Shrimp Oil, Fresh Prawns and Egg",
+        "name_th": "ผัดไทย เส้นจันท์ มันกุ้ง กุ้งทะเลสด ใส่ไข่",
+        "price_thb": 150,
+        "calories": 720,
+        "protein_g": 30,
+        "carbs_g": 82,
+        "fat_g": 30,
+        "sodium_mg": 1400,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pad Thai with Shrimp Oil and Fresh Prawns, Egg-Wrapped",
+        "name_th": "ผัดไทย เส้นจันท์ มันกุ้ง กุ้งทะเลสด ห่อไข่",
+        "price_thb": 150,
+        "calories": 780,
+        "protein_g": 34,
+        "carbs_g": 82,
+        "fat_g": 34,
+        "sodium_mg": 1450,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Vegetarian Pad Thai with Broccoli, Cabbage and Carrot",
+        "name_th": "ผัดไทย เส้นจันท์ เจ",
+        "price_thb": 105,
+        "calories": 550,
+        "protein_g": 12,
+        "carbs_g": 82,
+        "fat_g": 18,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Rung Rueang Pork Noodle",
+    "branch": "Sukhumvit 26",
+    "address": "10/3 Soi Sukhumvit 26, Khlong Tan, Khlong Toei, Bangkok 10110",
+    "phone": "+16502013595",
+    "lat": 13.7283,
+    "lng": 100.5706,
+    "cuisine": "thai",
+    "rating": 4.1,
+    "source_urls": [
+      "https://guide.michelin.com/th/th/bangkok-region/bangkok/restaurant/guay-tiew-mu-rung-rueang",
+      "https://cavinteo.blogspot.com/2025/05/rung-rueang-pork-noodle-michelin-bib-gourmand-bangkok.html",
+      "https://www.wongnai.com/reviews/5e59d2b07fcf4c6db5f2d93fb81eb169",
+      "https://www.wongnai.com/restaurants/571024iM",
+      "https://www.wongnai.com/restaurants/2641025Af"
+    ],
+    "notes": "PRICES PARTLY VERIFIED: small bowl 60 THB from a May 2025 blog; the two 70 THB 'special' bowls and 20 THB fish skin from a 2025 Wongnai user review, not an official menu. The delivery menu could not be read (Wongnai blocked automated access). Two adjacent shops share the name (10/1 'middle shop' and 10/3 corner shop); coordinates are for that block (Wongnai 13.72829,100.57051 and 13.72833,100.57073). Rating 4.1 is Wongnai for the 10/1 shop. Cash only at the shop. Nutrition estimated. Phone is from the Wongnai listing for the 10/1 'middle shop' (it also lists +66645426246 and +66932645992).",
+    "menu": [
+      {
+        "name": "Pork Noodle Soup (small)",
+        "name_th": "ก๋วยเตี๋ยวหมู (เล็ก)",
+        "price_thb": 60,
+        "calories": 300,
+        "protein_g": 18,
+        "carbs_g": 35,
+        "fat_g": 9,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Dry Thin Rice Noodles Tom Yum (special)",
+        "name_th": "เส้นเล็กแห้งต้มยำ พิเศษ",
+        "price_thb": 70,
+        "calories": 420,
+        "protein_g": 24,
+        "carbs_g": 45,
+        "fat_g": 15,
+        "sodium_mg": 1500,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Kiam Ee Noodles in Tom Yum Soup (special)",
+        "name_th": "เกี้ยมอี๋น้ำต้มยำ พิเศษ",
+        "price_thb": 70,
+        "calories": 400,
+        "protein_g": 24,
+        "carbs_g": 45,
+        "fat_g": 13,
+        "sodium_mg": 1600,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Fried Fish Skin",
+        "name_th": "หนังปลาทอด",
+        "price_thb": 20,
+        "calories": 120,
+        "protein_g": 6,
+        "carbs_g": 2,
+        "fat_g": 10,
+        "sodium_mg": 150,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Yayoi",
+    "branch": "Silom Complex",
+    "address": "Silom Complex, 191 Silom Rd, Silom, Bang Rak, Bangkok 10500",
+    "phone": "+16502013595",
+    "lat": 13.7283,
+    "lng": 100.535,
+    "cuisine": "japanese",
+    "rating": 3.4,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/27244DA/order",
+      "https://www.wongnai.com/restaurants/27244DA",
+      "https://yayoirestaurants.com/menus/c/3/set-menu",
+      "https://yayoirestaurants.com/menu/48/tori-teriyaki"
+    ],
+    "notes": "Prices from the branch's LINE MAN/Wongnai delivery menu (Nov 2026); yayoirestaurants.com lists different set prices (e.g. Tori Teriyaki set 190, Kurobuta Tonkatsu set 224), so the delivery listing may be single-dish prices. Wongnai's street address field reads '30/17 Soi Sala Daeng 2' but its coordinates and the official branch list place it in Silom Complex. Yayoi publishes allergens, not nutrition; values are estimates assuming a set with rice and miso soup where applicable.",
+    "menu": [
+      {
+        "name": "Tori Teriyaki",
+        "name_th": "ไก่เทอริยากิ",
+        "price_thb": 175,
+        "calories": 750,
+        "protein_g": 38,
+        "carbs_g": 95,
+        "fat_g": 22,
+        "sodium_mg": 1700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Buta Yakiniku on Hot Plate",
+        "name_th": "หมูย่างกระทะร้อน",
+        "price_thb": 189,
+        "calories": 800,
+        "protein_g": 32,
+        "carbs_g": 95,
+        "fat_g": 30,
+        "sodium_mg": 1900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Kurobuta Tonkatsu",
+        "name_th": "หมูคุโรบูตะชุบแป้งทอด",
+        "price_thb": 209,
+        "calories": 950,
+        "protein_g": 35,
+        "carbs_g": 100,
+        "fat_g": 45,
+        "sodium_mg": 1700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Zaru Soba (served cold)",
+        "name_th": "โซบะเย็น",
+        "price_thb": 159,
+        "calories": 400,
+        "protein_g": 14,
+        "carbs_g": 80,
+        "fat_g": 2,
+        "sodium_mg": 1500,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Tempura Udon",
+        "name_th": "อุด้งเทมปุระ",
+        "price_thb": 185,
+        "calories": 550,
+        "protein_g": 18,
+        "carbs_g": 80,
+        "fat_g": 15,
+        "sodium_mg": 2500,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Massilia (formerly Pizza Massilia)",
+    "branch": "Ruamrudee",
+    "address": "15/1 Soi Ruamrudee Community, Lumphini, Pathum Wan, Bangkok 10330",
+    "phone": "+16502013595",
+    "lat": 13.7401,
+    "lng": 100.5495,
+    "cuisine": "italian",
+    "rating": 4.2,
+    "source_urls": [
+      "https://www.massiliabkk.com/massilia-ruamrudee-menu",
+      "https://www.massiliabkk.com/massilia-italian-restaurant",
+      "https://www.wongnai.com/restaurants/218390mS"
+    ],
+    "notes": "Branch changed: the brand's site now lists only Massilia Ruamrudee plus a pizza truck; the Sathorn (Narathiwat Soi 5) and Sukhumvit branches no longer appear and have no Wongnai delivery listing, so the Sathorn branch in the existing list should be replaced. Prices are the official dine-in a la carte menu (Nov 2026) and exclude 7% VAT and 10% service charge; the site links Grab for delivery but delivery prices were not verified. Nutrition estimated.",
+    "menu": [
+      {
+        "name": "Margherita Pizza",
+        "name_th": null,
+        "price_thb": 390,
+        "calories": 850,
+        "protein_g": 36,
+        "carbs_g": 110,
+        "fat_g": 28,
+        "sodium_mg": 1900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Calabria on Fire Pizza ('nduja, spicy salami)",
+        "name_th": null,
+        "price_thb": 490,
+        "calories": 1000,
+        "protein_g": 42,
+        "carbs_g": 110,
+        "fat_g": 42,
+        "sodium_mg": 2600,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Tagliatelle Bolognese",
+        "name_th": null,
+        "price_thb": 520,
+        "calories": 750,
+        "protein_g": 35,
+        "carbs_g": 85,
+        "fat_g": 28,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Spaghetti Vongole",
+        "name_th": null,
+        "price_thb": 490,
+        "calories": 600,
+        "protein_g": 28,
+        "carbs_g": 80,
+        "fat_g": 18,
+        "sodium_mg": 1400,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Chicken Salad (grilled breast, apple, olives)",
+        "name_th": null,
+        "price_thb": 420,
+        "calories": 380,
+        "protein_g": 32,
+        "carbs_g": 15,
+        "fat_g": 22,
+        "sodium_mg": 700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Minestrone",
+        "name_th": null,
+        "price_thb": 290,
+        "calories": 180,
+        "protein_g": 6,
+        "carbs_g": 28,
+        "fat_g": 6,
+        "sodium_mg": 900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  },
+  {
+    "name": "Holey Artisan Bakery",
+    "branch": "Suan Phlu",
+    "address": "39/17 Soi Suan Phlu, Thung Maha Mek, Sathon, Bangkok 10120",
+    "phone": "+16502013595",
+    "lat": 13.7218,
+    "lng": 100.5374,
+    "cuisine": "cafe",
+    "rating": 4.5,
+    "source_urls": [
+      "https://www.wongnai.com/delivery/businesses/2958299DU/order",
+      "https://www.wongnai.com/restaurants/2958299DU"
+    ],
+    "notes": "Prices from the branch's official LINE MAN/Wongnai delivery menu (Nov 2026); item names translated from the Thai listing. Nutrition estimated.",
+    "menu": [
+      {
+        "name": "My Hot Kai (grilled chicken, basil pesto, cheddar panini)",
+        "name_th": "มายฮอทไก่",
+        "price_thb": 350,
+        "calories": 650,
+        "protein_g": 42,
+        "carbs_g": 55,
+        "fat_g": 28,
+        "sodium_mg": 1300,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Tuna Turner Panini",
+        "name_th": "ทูน่าเทอร์เนอร์",
+        "price_thb": 320,
+        "calories": 600,
+        "protein_g": 30,
+        "carbs_g": 55,
+        "fat_g": 28,
+        "sodium_mg": 1200,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Smoked Salmon and Avocado Egg on Toast",
+        "name_th": "แซลมอนและอะโวคาโดไข่บนโทสต์",
+        "price_thb": 400,
+        "calories": 520,
+        "protein_g": 28,
+        "carbs_g": 40,
+        "fat_g": 27,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Coronation Chicken Sandwich",
+        "name_th": "คอโรเนชั่นชิคเก้น",
+        "price_thb": 300,
+        "calories": 600,
+        "protein_g": 30,
+        "carbs_g": 50,
+        "fat_g": 30,
+        "sodium_mg": 1000,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Pessi Smoked Salmon Focaccia",
+        "name_th": "เพสซี - โฟคาเซียแซลมอนรมควัน",
+        "price_thb": 200,
+        "calories": 380,
+        "protein_g": 18,
+        "carbs_g": 40,
+        "fat_g": 16,
+        "sodium_mg": 900,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      },
+      {
+        "name": "Guacamole Sandwich",
+        "name_th": "แซนด์วิชกัวคาโมเล่",
+        "price_thb": 400,
+        "calories": 500,
+        "protein_g": 12,
+        "carbs_g": 60,
+        "fat_g": 24,
+        "sodium_mg": 700,
+        "nutrition_source": "estimated",
+        "nutrition_url": null
+      }
+    ]
+  }
+]

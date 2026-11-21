@@ -16,8 +16,7 @@ services:
   mcp:
     build: ./MCP
     environment:
-      BACKEND_URL: http://backend:8000
+      PUBLIC_BASE_URL: http://localhost:8001
+      SIM_RETURN_ORIGIN: http://localhost:3000
     ports:
       - "127.0.0.1:8001:8001"
-    depends_on:
-      - backend

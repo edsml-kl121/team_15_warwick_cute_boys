@@ -1,13 +1,20 @@
 [project]
 name = "shopee-sim"
 version = "0.1.0"
-description = "Mock Shopee Food, Mall, and ShopeePay MCP server"
+description = "Simulated Shopee Food / Mall / ShopeePay with an MCP server for AI agents"
+readme = "README.md"
 requires-python = ">=3.13"
-dependencies = ["mcp==1.26.0", "uvicorn==0.41.0"]
+dependencies = [
+    "fastapi>=0.162.2",
+    "httpx>=0.28.1",
+    "mcp>=2.3.0",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "httpx>=0.27"]
+dev = [
+    "pytest>=9.2.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests"]

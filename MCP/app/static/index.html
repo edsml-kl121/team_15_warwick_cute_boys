@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopee Simulator · My Purchases</title>
+<style>
+  :root { --brand: #ee4d2d; --ink: #222; --muted: #888; --line: #efefef; --bg: #f5f5f5; --ok: #26aa99; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 -apple-system, "Helvetica Neue", Roboto, sans-serif; background: #e9e9e9; color: var(--ink); }
+  .phone { max-width: 420px; margin: 0 auto; min-height: 100vh; background: var(--bg); }
+  header { background: linear-gradient(-180deg, #f53d2d, #f63); color: #fff; padding: 14px 16px 16px; position: sticky; top: 0; z-index: 2; }
+  header .top { display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 500; }
+  .wallet { background: rgba(255,255,255,.18); border-radius: 99px; padding: 4px 10px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .wallet b { font-weight: 600; }
+  .tabs { display: flex; background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 56px; z-index: 2; }
+  .tabs button { flex: 1; border: 0; background: none; padding: 12px 0; font-size: 14px; color: var(--ink); border-bottom: 2px solid transparent; cursor: pointer; }
+  .tabs button.on { color: var(--brand); border-color: var(--brand); }
+  .order { background: #fff; margin-top: 10px; }
+  .shoprow { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .tag { background: var(--brand); color: #fff; font-size: 10px; padding: 1px 4px; border-radius: 2px; }
+  .tag.mall { background: #d0011b; }
+  .shoprow .name { font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status { color: var(--brand); font-size: 13px; text-transform: uppercase; white-space: nowrap; }
+  .status.ok { color: var(--ok); }
+  .track { display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: #f8fffd; color: var(--ok); font-size: 13px; border-bottom: 1px solid var(--line); }
+  .track.live { background: #fff8f6; color: var(--brand); }
+  .item { display: flex; gap: 10px; padding: 12px 16px; background: #fafafa; }
+  .item img { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--line); flex: none; background: #fff; }
+  .item .info { flex: 1; min-width: 0; }
+  .item .n { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .item .q { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .item .p { color: var(--brand); text-align: right; align-self: flex-end; white-space: nowrap; }
+  .sum { padding: 12px 16px; text-align: right; border-top: 1px solid var(--line); }
+  .sum .muted { color: var(--muted); font-size: 12px; float: left; line-height: 22px; }
+  .sum b { color: var(--brand); font-size: 16px; font-weight: 500; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 12px; }
+  .btn { padding: 8px 18px; border-radius: 2px; font-size: 14px; text-decoration: none; border: 1px solid #ddd; color: var(--ink); background: #fff; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .empty { text-align: center; padding: 64px 32px; color: var(--muted); }
+  .empty .ico { font-size: 48px; opacity: .4; }
+  .sim { text-align: center; font-size: 11px; color: #a37b00; background: #fff8e1; padding: 3px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="sim">SIMULATOR · Shopee Food / Mall / ShopeePay sandbox</div>
+  <header><div class="top"><h1>My Purchases</h1><span class="wallet">ShopeePay <b id="bal">…</b></span></div></header>
+  <nav class="tabs" id="tabs"></nav>
+  <div id="orders"></div>
+</div>
+<script>
+const TABS = [["all", "All"], ["topay", "To Pay"], ["active", "In Progress"], ["done", "Completed"]];
+const MESSAGES = { confirmed: "Restaurant confirmed your order", preparing: "Restaurant is preparing your food",
+  rider_assigned: "A driver is heading to the restaurant", picked_up: "Driver picked up your order and is on the way",
+  packed: "Seller packed your parcel", shipped: "Parcel is on the way", delivered: "Order delivered" };
+let tab = "all", images = {};
+
+const money = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const label = (s) => s.replace(/_/g, " ");
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => (k === "class" ? (n.className = v) : n.setAttribute(k, v)));
+  kids.flat().forEach((k) => n.append(k instanceof Node ? k : document.createTextNode(String(k))));
+  return n;
+}
+function bucket(o) {
+  if (o.status === "pending_payment") return "topay";
+  if (o.status === "delivered" || o.status === "cancelled") return "done";
+  return "active";
+}
+
+function drawTabs() {
+  document.getElementById("tabs").replaceChildren(...TABS.map(([key, name]) => {
+    const b = el("button", { type: "button", class: key === tab ? "on" : "" }, name);
+    b.onclick = () => { tab = key; refresh(); };
+    return b;
+  }));
+}
+
+function card(o) {
+  const food = o.kind === "food";
+  const delivered = o.status === "delivered";
+  const kids = [el("div", { class: "shoprow" }, el("span", { class: "tag" + (food ? "" : " mall") }, food ? "Food" : "Mall"),
+    el("span", { class: "name" }, food ? o.shop_name : "Shopee Mall"),
+    el("span", { class: "status" + (delivered ? " ok" : "") }, o.status === "pending_payment" ? "To pay" : label(o.status)))];
+  if (MESSAGES[o.status]) kids.push(el("div", { class: "track" + (delivered ? "" : " live") }, delivered ? "✓" : "🛵", MESSAGES[o.status]));
+  o.items.forEach((i) => kids.push(el("div", { class: "item" },
+    el("img", { src: images[i.id] || images[o.shop_id] || "", alt: "" }),
+    el("div", { class: "info" }, el("div", { class: "n" }, i.name), el("div", { class: "q" }, `x${i.qty}`),
+      i.nutrition ? el("div", { class: "q" }, `${i.nutrition.calories} kcal · ${i.nutrition.protein_g}g protein`) : ""),
+    el("div", { class: "p" }, `฿${money(i.unit_price_thb)}`))));
+  kids.push(el("div", { class: "sum" }, el("span", { class: "muted" }, `${o.items.length} item(s) · ${new Date(o.created_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`),
+    "Order Total: ", el("b", {}, `฿${money(o.total_thb)}`)));
+  if (o.status === "pending_payment" && o.intent_id) kids.push(el("div", { class: "actions" }, el("a", { class: "btn primary", href: `/pay/${o.intent_id}` }, "Pay Now")));
+  return el("div", { class: "order" }, ...kids);
+}
+
+async function loadImages() {
+  const [shops, products] = await Promise.all([fetch("/api/restaurants?max_km=50").then((r) => r.json()), fetch("/api/products").then((r) => r.json())]);
+  shops.forEach((s) => (images[s.shop_id] = s.image_url));
+  products.forEach((p) => (images[p.product_id] = p.image_url));
+}
+
+async function refresh() {
+  drawTabs();
+  try {
+    const [orders, wallet] = await Promise.all([fetch("/api/orders").then((r) => r.json()), fetch("/api/wallet").then((r) => r.json())]);
+    document.getElementById("bal").textContent = `฿${money(wallet.balance_thb)}`;
+    const shown = orders.filter((o) => tab === "all" || bucket(o) === tab);
+    document.getElementById("orders").replaceChildren(...(shown.length ? shown.map(card)
+      : [el("div", { class: "empty" }, el("div", { class: "ico" }, "🧾"), "No orders yet. Ask your agent to order something.")]));
+  } catch (e) {
+    document.getElementById("bal").textContent = "offline";
+    document.getElementById("orders").replaceChildren(el("div", { class: "empty" }, "Can't reach the simulator. Start it and open http://localhost:8090"));
+  }
+}
+loadImages().catch(() => {}).finally(refresh);
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
