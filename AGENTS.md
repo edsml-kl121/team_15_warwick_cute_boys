@@ -18,7 +18,7 @@ Zippy is a chat-first proactive health assistant. The demo follows Ploy from a s
 - **Files.** A Railway S3-compatible bucket stores meal photos. MongoDB keeps only the object key, and the backend signs URLs on read.
 - **Visitors.** Each browser gets a guest cookie (`POST /visitor`). `/?demo=ploy` opens the scripted Ploy demo with its own cookie and presenter controls.
 - **Health history.** A visitor can import their own history file (profile, meals, wearables, workouts, weights and body scans) with `PUT /persona`. The backend stores it on the guest, maps it into the profile goals and food log, and gives the coach a compact summary through the `get_health_history` tool. The raw log never goes to the model.
-- **Frontend.** Static HTML, CSS and JavaScript with no build step. It is installable to the iOS Home Screen (`manifest.webmanifest`). `sw.js` shows web push, which still needs the backend routes described in [FE/CHAT_API.md](FE/CHAT_API.md#web-push-backend-work-needed).
+- **Frontend.** Static HTML, CSS and JavaScript with no build step. It is installable to the iOS Home Screen (`manifest.webmanifest`). `sw.js` shows web push sent by the backend for every notification (VAPID keys on the Backend). The presenter dashboard (`/presenter.html`) triggers moments for a guest by display name with `PRESENTER_KEY`. See [FE/CHAT_API.md](FE/CHAT_API.md#web-push).
 
 ## Where to work
 

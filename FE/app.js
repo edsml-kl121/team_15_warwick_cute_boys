@@ -650,6 +650,24 @@
     }
   }
 
+  async function leaveGuest(control) {
+    if (service.demo) return;
+    if (!confirm('Leave this guest session? You’ll start a new profile. A guest profile cannot be recovered by name.')) return;
+    const status = history.querySelector('.guest-exit-status');
+    status.hidden = true;
+    control.disabled = true;
+    try {
+      await service.json('visitor', undefined, 'DELETE');
+      ready = false;
+      try { sessionStorage.removeItem(pendingOrderKey); } catch { /* Storage can be disabled. */ }
+      location.replace('./');
+    } catch (error) {
+      status.textContent = error.message;
+      status.hidden = false;
+      control.disabled = false;
+    }
+  }
+
   const actions = {
     'open-history': openHistory,
     'close-history': closeHistory,
@@ -677,6 +695,7 @@
     back: control => goBack(control.getAttribute('href')),
     'enable-push': control => push.enable(active.id, control),
     'demo-reset': resetDemo,
+    'leave-guest': leaveGuest,
     'open-notification': () => {
       lock.hidden = true;
       location.hash = '';
@@ -797,6 +816,20 @@
   onboarding.querySelector('.onboarding-retry').addEventListener('click', start);
   history.querySelector('.demo-controls').hidden = !service.demo;
   history.querySelector('.demo-entry').hidden = service.demo;
+  document.querySelectorAll('.demo-exit').forEach(link => { link.hidden = !service.demo; });
+  history.querySelector('.guest-exit').hidden = service.demo;
+  // iOS overlays the keyboard instead of resizing the page; track the visible height so the composer stays above it.
+  function fitViewport() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    document.documentElement.style.setProperty('--app-height', `${Math.round(viewport.height)}px`);
+    if (viewport.offsetTop) window.scrollTo(0, 0);
+    if (mode === 'typing') scrollToLatest();
+  }
+  window.visualViewport?.addEventListener('resize', fitViewport);
+  window.visualViewport?.addEventListener('scroll', fitViewport);
+  fitViewport();
+
   window.addEventListener('hashchange', route);
   enableEdgeSwipe();
   main.inert = true;

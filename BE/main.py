@@ -18,12 +18,13 @@ from pydantic import BaseModel, Field, StringConstraints
 from demo import Clock, DEMO_DATE
 from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
 from persona import Persona, apply_to_profile
+from push import WebPush, add_subscription
 from service import MOMENTS, Zippy
 from storage import DemoHealth, JsonStore, VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
 
 load_dotenv()
-Moment = Literal["morning_sleep", "dinner_tip", "daily_summary"]
+Moment = Literal["morning_sleep", "dinner_tip", "daily_summary", "weekly_recap"]
 SESSION_ID = r"^[A-Za-z0-9_-]{1,80}$"
 SessionQuery = Annotated[str, Query(pattern=SESSION_ID)]
 
@@ -40,6 +41,11 @@ class Settings:
         self.mongo_url = os.getenv("MONGO_URL")
         self.mongo_database = os.getenv("MONGO_DATABASE") or "zippy"
         self.secure_cookies = bool(os.getenv("RAILWAY_ENVIRONMENT"))
+        self.vapid_public_key = os.getenv("VAPID_PUBLIC_KEY", "")
+        self.vapid_private_key = os.getenv("VAPID_PRIVATE_KEY", "")
+        self.vapid_subject = os.getenv("VAPID_SUBJECT", "mailto:zippy@example.com")
+        # Presenter routes act on any guest by name, so they need their own secret on Railway.
+        self.presenter_key = os.getenv("PRESENTER_KEY", "" if os.getenv("RAILWAY_ENVIRONMENT") else "local-presenter")
 
 
 class SessionBody(BaseModel):
@@ -100,6 +106,27 @@ class Profile(BaseModel):
     connections: list[Connection] = Field(max_length=32)
 
 
+class PushKeys(BaseModel):
+    p256dh: str = Field(min_length=1, max_length=200)
+    auth: str = Field(min_length=1, max_length=100)
+
+
+class PushSubscription(BaseModel):
+    endpoint: str = Field(pattern=r"^https://", max_length=1000)
+    expirationTime: int | None = None
+    keys: PushKeys
+
+
+class SubscribeBody(SessionBody):
+    subscription: PushSubscription
+
+
+class PresenterTrigger(BaseModel):
+    guest_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+    moment: Moment | None = None
+    reminder: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+
+
 class Onboarding(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     food: Annotated[str, StringConstraints(strip_whitespace=True, max_length=240)] = ""
@@ -122,8 +149,10 @@ def visitor_id(request, demo):
 
 
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
-               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None):
+               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None):
     settings = settings or Settings()
+    push_sender = push or (WebPush(settings.vapid_public_key, settings.vapid_private_key, settings.vapid_subject)
+                           if settings.vapid_public_key and settings.vapid_private_key else None)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -169,7 +198,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         def build(guest_store, demo):
             return Zippy(guest_store, local_clock, health or DemoHealth(), adapter, prompts,
-                         assistant, telephony if demo else DemoPhone(), photo_reader)
+                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender)
 
         def open_visitor(owner, *, demo, profile=None, create=False):
             if owner and owner not in visitors:
@@ -183,6 +212,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         zippy = build(default_store, True)
         app.state.zippy = zippy
         app.state.open_visitor = open_visitor
+        app.state.find_guests = stores.find_owners
 
         def booking_service(booking_id):
             if booking_id in zippy.state["bookings"]:
@@ -224,8 +254,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                 mongo_client.close()
 
     app = FastAPI(title="Zippy", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=[settings.origin], allow_methods=["GET", "POST", "PUT"],
-                       allow_headers=["Authorization", "Content-Type", "X-Zippy-Demo"])
+    app.add_middleware(CORSMiddleware, allow_origins=[settings.origin], allow_methods=["GET", "POST", "PUT", "DELETE"],
+                       allow_headers=["Authorization", "Content-Type", "X-Zippy-Demo", "X-Presenter-Key"])
 
     async def auth(authorization: str = Header(default="")):
         if not secrets.compare_digest(authorization.encode(), f"Bearer {settings.token}".encode()):
@@ -263,6 +293,14 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         demo = visitor_mode(request)
         zippy = request.app.state.open_visitor(visitor_id(request, demo), demo=demo)
         return {"ready": zippy is not None}
+
+    @app.delete("/visitor", dependencies=protected)
+    async def leave_visitor(request: Request, response: Response):
+        response.delete_cookie(
+            visitor_cookie(visitor_mode(request)), httponly=True, samesite="lax",
+            secure=settings.secure_cookies or request.url.scheme == "https",
+        )
+        return {"ready": False}
 
     @app.post("/visitor", dependencies=protected)
     async def start_visitor(request: Request, response: Response, body: Onboarding | None = None):
@@ -437,18 +475,52 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         await zippy.proactive(body.moment, body.session_id)
         return {"status": "ok"}
 
-    @app.post("/demo/trigger", dependencies=protected)
-    async def trigger(body: TriggerBody, zippy=Depends(presenter)):
-        if body.moment and not body.reminder:
-            await zippy.proactive(body.moment, body.session_id, demo=True)
-        elif body.reminder and not body.moment:
+    async def fire(zippy, session_id, moment, reminder):
+        if moment and not reminder:
+            await zippy.proactive(moment, session_id, demo=True)
+        elif reminder and not moment:
             async with zippy.mutation:
-                zippy.state["clock"] = f'{zippy.state["date"]}T{body.reminder}:00+07:00'
-                zippy.due_reminders(body.reminder)
+                zippy.state["clock"] = f'{zippy.state["date"]}T{reminder}:00+07:00'
+                zippy.due_reminders(reminder)
                 zippy.store.save()
         else:
             raise HTTPException(400, "Pass one moment or reminder.")
+
+    @app.post("/demo/trigger", dependencies=protected)
+    async def trigger(body: TriggerBody, zippy=Depends(presenter)):
+        await fire(zippy, body.session_id, body.moment, body.reminder)
         return {"status": "ok"}
+
+    @app.post("/presenter/trigger", dependencies=protected)
+    async def presenter_trigger(request: Request, body: PresenterTrigger,
+                                x_presenter_key: str = Header(default="")):
+        """Fire a moment for a guest found by display name, from any browser holding the presenter key."""
+        if not settings.presenter_key or not secrets.compare_digest(x_presenter_key.encode(), settings.presenter_key.encode()):
+            raise HTTPException(403, "Enter the presenter key.")
+        owners = request.app.state.find_guests(body.guest_name)
+        if not owners:
+            raise HTTPException(404, f"No guest named {body.guest_name}.")
+        if len(owners) > 1:
+            raise HTTPException(409, f"{len(owners)} guests are named {body.guest_name}. Use a unique name.")
+        zippy = request.app.state.open_visitor(owners[0], demo=owners[0].startswith("demo-"))
+        sessions = zippy.state["sessions"]
+        session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
+        await fire(zippy, session_id, body.moment, body.reminder)
+        return {"status": "ok", "session_id": session_id, "devices": len(zippy.state.get("push_subscriptions", []))}
+
+    @app.get("/push/key", dependencies=protected)
+    async def push_key():
+        if push_sender is None:
+            raise HTTPException(503, "Push notifications aren't configured on the server.")
+        return {"public_key": push_sender.public_key}
+
+    @app.post("/push/subscribe", dependencies=protected)
+    async def push_subscribe(body: SubscribeBody, zippy=Depends(service)):
+        async with zippy.mutation:
+            zippy.state["push_subscriptions"] = add_subscription(
+                zippy.state.get("push_subscriptions", []), body.subscription.model_dump(exclude_none=True))
+            zippy.store.save()
+        return {"devices": len(zippy.state["push_subscriptions"])}
 
     @app.post("/demo/reset", dependencies=protected)
     async def reset(zippy=Depends(presenter)):

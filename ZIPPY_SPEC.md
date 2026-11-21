@@ -138,6 +138,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 |---|---|
 | `GET /health` | Railway health check, returns `{"status":"ok"}` |
 | `GET /visitor`, `POST /visitor` | Check for a guest cookie or create a guest profile from a display name and optional food preferences and budget |
+| `DELETE /visitor` | Clear the active visitor cookie and return to guest setup. Stored records are retained. |
 | `GET /profile`, `PUT /profile` | Frontend reads or updates goals, preferences and connections |
 | `GET /persona`, `PUT /persona` | Frontend imports or reads the visitor's own health history. Import updates profile targets and the food log and feeds the coach's summary tool. |
 | `GET /today` | Frontend reads recovery, sleep, nutrition, activity and upcoming actions |
@@ -149,8 +150,10 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `POST /actions/buy`, `POST /actions/pay` | Frontend places a Mall order and requests payment |
 | `GET /shopee-orders/{id}` | Frontend polls order status while the PIN page is open |
 | `GET /bookings/{id}` | Frontend checks booking status |
-| `POST /proactive {moment}` | Cron or demo triggers `morning_sleep`, `dinner_tip` or `daily_summary` |
+| `POST /proactive {moment}` | Cron or demo triggers `morning_sleep`, `dinner_tip`, `daily_summary` or `weekly_recap` |
 | `POST /demo/reset`, `POST /demo/trigger` | Presenter resets or triggers a moment or reminder |
+| `POST /presenter/trigger` | Presenter dashboard fires a moment for a guest by display name, authorized by `X-Presenter-Key` |
+| `GET /push/key`, `POST /push/subscribe` | Frontend reads the VAPID public key and saves the browser's push subscription. Notifications are pushed to saved devices. |
 | `POST /call-status` | Twilio callback with `CallStatus`, `CallDuration` and `AnsweredBy` |
 | `WS /media-stream` | Twilio streams call audio |
 | `WS /voice` | Browser voice coach (stretch) |

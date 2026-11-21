@@ -135,3 +135,113 @@ def recommendation_context(persona):
         "weight_trend": {"first": weights[0], "last": weights[-1]} if weights else None,
         "latest_body_scan": (persona.get("body_composition_scans") or [None])[-1],
     }
+
+
+# Proactive recommendations -------------------------------------------------
+
+def _dish_catalog(persona):
+    """Each dish the person has eaten, with nutrition per serving, how often, and where they ordered it."""
+    dishes = {}
+    for entry in (persona or {}).get("food_history_log", []):
+        restaurant = (entry.get("order") or {}).get("restaurant")
+        for item in entry.get("items", []):
+            name, nutrition = item.get("dish_name"), item.get("nutrition") or {}
+            kcal, protein = _number(nutrition.get("calories")), _number(nutrition.get("protein_g"))
+            if not name or kcal <= 0:
+                continue
+            dish = dishes.setdefault(name, {"dish": name, "kcal": round(kcal), "protein_g": round(protein),
+                                            "cuisine": item.get("cuisine"), "count": 0, "restaurants": Counter(),
+                                            "meal_times": Counter()})
+            dish["count"] += 1
+            dish["meal_times"][entry.get("meal_time")] += 1
+            if restaurant:
+                dish["restaurants"][restaurant] += 1
+    return dishes
+
+
+def pick_meal(persona, protein_gap, kcal_left, default, meal_time="dinner", exclude=(), min_protein=None):
+    """Choose a dish the person already likes that closes the protein gap within the calories left."""
+    profile = (persona or {}).get("profile", {})
+    favourites = {name.casefold() for name in profile.get("favorite_dishes", [])}
+    cuisines = {name.casefold() for name in profile.get("cuisine_prefs", [])}
+    budget = max(kcal_left, 450)
+    floor = min(25, max(protein_gap, 15)) if min_protein is None else min_protein
+    candidates = [dish for dish in _dish_catalog(persona).values()
+                  if dish["protein_g"] >= floor and dish["kcal"] <= budget
+                  and dish["dish"] not in exclude]
+    if not candidates:
+        return default
+
+    def score(dish):
+        favourite = any(name in dish["dish"].casefold() or dish["dish"].casefold() in name for name in favourites)
+        return (dish["meal_times"][meal_time] > 0, 2 * favourite + (str(dish["cuisine"]).casefold() in cuisines),
+                dish["count"], dish["protein_g"] / dish["kcal"])
+
+    best = max(candidates, key=score)
+    reasons = []
+    if best["restaurants"]:
+        place, times = best["restaurants"].most_common(1)[0]
+        reasons.append(f"you've ordered it {times}× from {place}" if times > 1 else f"you've had it from {place}")
+    elif best["count"] > 1:
+        reasons.append(f"you've logged it {best['count']} times")
+    reasons.append(f"{best['protein_g']} g protein for {best['kcal']} kcal fits the {max(0, round(kcal_left))} kcal you have left")
+    return {"dish": best["dish"], "kcal": best["kcal"], "protein_g": best["protein_g"],
+            "why": ("A familiar pick: " + "; ".join(reasons) + ".")[:240]}
+
+
+def weekly_recap(persona, goals, days=RECENT_DAYS):
+    """Averages over the last logged days, one insight, and the question to ask next."""
+    log = (persona or {}).get("food_history_log", [])
+    dates = sorted({entry.get("date") for entry in log if entry.get("date")})[-days:]
+    if not dates:
+        return None
+    window = [entry for entry in log if entry.get("date") in dates]
+    total = lambda key: sum(_number((entry.get("meal_totals") or {}).get(key)) for entry in window)
+    count = len(dates)
+    orders = [entry["order"] for entry in window if entry.get("channel") == "shopee_food_order" and entry.get("order")]
+    spend = Counter()
+    for order in orders:
+        spend[order.get("restaurant")] += _number(order.get("total_thb"))
+    wearables = [row for row in persona.get("wearable_daily", []) if row.get("date") in dates and row.get("steps")]
+    weights = [row for row in persona.get("weights", []) if _number(row.get("weight_kg"), None) is not None]
+    recap = {
+        "kind": "weekly_recap", "days": count, "from": dates[0], "to": dates[-1],
+        "kcal": round(total("calories") / count), "kcal_goal": goals.get("kcal"),
+        "protein_g": round(total("protein_g") / count), "protein_goal": goals.get("protein_g"),
+        "sodium_mg": round(total("sodium_mg") / count),
+        "orders": len(orders), "spend_thb": round(sum(spend.values())),
+        "top_restaurant": spend.most_common(1)[0][0] if spend else None,
+        "steps": round(sum(row["steps"] for row in wearables) / len(wearables)) if wearables else None,
+        "steps_goal": goals.get("steps"),
+        "weight_change_kg": round(_number(weights[-1]["weight_kg"]) - _number(weights[0]["weight_kg"]), 1) if len(weights) > 1 else None,
+    }
+    over = recap["kcal"] - (recap["kcal_goal"] or recap["kcal"])
+    if over > 150:
+        insight = f"You averaged {over:,} kcal a day over your target, mostly at dinner."
+    elif recap["sodium_mg"] > 2300:
+        insight = f"Calories were close to target, but sodium averaged {recap['sodium_mg']:,} mg a day."
+    else:
+        insight = "You stayed close to your targets this week. Nice."
+    recap["insight"] = insight
+    return recap
+
+
+def plan_day(persona, goals):
+    """Three familiar meals that together land near the calorie and protein targets."""
+    kcal_goal, protein_goal = goals.get("kcal", 2000), goals.get("protein_g", 90)
+    plan, used = [], set()
+    shares = (("breakfast", 0.25), ("lunch", 0.35), ("dinner", 0.4))
+    for meal_time, share in shares:
+        dish = pick_meal(persona, protein_goal * share, kcal_goal * share, None, meal_time, used, min_protein=15)
+        if dish:
+            used.add(dish["dish"])
+            plan.append({"meal": MEAL_LABELS[meal_time], **dish})
+    return plan
+
+
+def lighter_orders(persona, limit=3):
+    """Dishes the person has ordered on Shopee Food with the most protein per calorie."""
+    ordered = [dish for dish in _dish_catalog(persona).values() if dish["restaurants"] and dish["protein_g"] >= 15]
+    ranked = sorted(ordered, key=lambda dish: dish["protein_g"] / dish["kcal"], reverse=True)[:limit]
+    return [{"dish": dish["dish"], "kcal": dish["kcal"], "protein_g": dish["protein_g"],
+             "restaurant": dish["restaurants"].most_common(1)[0][0]} for dish in ranked]

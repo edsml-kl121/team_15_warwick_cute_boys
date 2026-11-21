@@ -5,7 +5,8 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
   "fastapi==0.133.0", "uvicorn[standard]==0.41.0", "openai-agents>=0.24,<1",
   "twilio>=9,<10", "python-dotenv>=1,<2", "pyyaml>=6,<7", "python-multipart>=0.0.22,<1",
-  "boto3>=1,<2", "httpx==0.28.1", "pillow>=11,<13", "pymongo>=4,<5"
+  "boto3>=1,<2", "httpx==0.28.1", "pillow>=11,<13", "pymongo>=4,<5",
+  "pywebpush>=2,<3"
 ]
 
 [dependency-groups]

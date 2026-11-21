@@ -52,6 +52,14 @@ Keep one Backend replica. Local runs without `MONGO_URL` use scoped JSON files u
 
 `PUT /persona` imports a visitor's own health history as one JSON document (`profile`, `food_history_log`, `wearable_daily`, `workouts`, `weights`, `body_composition_scans`). The backend validates it, stores it on the guest, applies the calorie and macro targets, name, area, tastes and connected sources to the profile, and merges that day's meals into `GET /food-log`. The coach's `get_health_history` tool returns a compact summary of it, never the raw log. `GET /persona` returns the stored document.
 
+## Web push and presenter
+
+Generate a VAPID key pair once with `uv run python -m push`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` contact) on the Backend. `GET /push/key` returns the public key, and `POST /push/subscribe` saves the browser's subscription on the guest (`push_subscriptions` on the `guests` document, up to 10 devices). Every feed item with `notify` is pushed to that guest's devices, and devices the push service reports as gone (404 or 410) are removed. Without the keys, `/push/key` answers 503 and the app shows an in-app lock screen only.
+
+Set `PRESENTER_KEY` on the Backend. `POST /presenter/trigger` with `X-Presenter-Key` and `{guest_name, moment | reminder}` fires a moment for the guest with that display name (case-insensitive) in their most recent chat. It refuses unknown or duplicate names. The presenter dashboard (`/presenter.html`) uses it from any device.
+
+With imported health history, the dinner tip picks a dish the guest already eats that closes today's protein gap within the calories left, explains why and searches Shopee Food for it. Without history it falls back to the grilled chicken salad. The `weekly_recap` moment summarises the last seven logged days (calories, protein, steps, Shopee Food spend, sodium and weight), states one insight and asks what to work on. Its replies, **Plan tomorrow's meals** and **Find lighter orders**, answer from the same history without an AI key.
+
 The bucket stores JPEG food images. MongoDB saves each image's object key, and the backend issues a fresh signed URL for display. Food photo analysis also requires `OPENAI_API_KEY`.
 
 Calls simulate results by default. For live calls in the Ploy demo set `LIVE_CALLS=1`, the Twilio and OpenAI variables from the spec, and a comma-separated `TWILIO_VERIFIED_TEST_NUMBERS` list of team-owned numbers. The backend requires the listing number to match that list. An OpenAI key enables free-form chat through the Agents SDK.

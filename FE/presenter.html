@@ -24,12 +24,23 @@
     </header>
 
     <section class="card pr-card" aria-labelledby="target-title">
-      <h2 id="target-title">Target chat</h2>
+      <h2 id="target-title">Target</h2>
       <label class="pr-field">
-        <span class="lbl">Session ID</span>
-        <input id="session" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9_-]{1,80}" placeholder="Open from the app’s Presenter menu to fill this in">
+        <span class="lbl">Guest name</span>
+        <input id="guest-name" autocomplete="off" spellcheck="false" maxlength="60" placeholder="The display name the phone started with">
       </label>
-      <p class="mut">On the phone: menu › Presenter › Open presenter dashboard.</p>
+      <label class="pr-field">
+        <span class="lbl">Presenter key</span>
+        <input id="presenter-key" type="password" autocomplete="off" placeholder="PRESENTER_KEY from the backend">
+      </label>
+      <p class="mut">Works from any device. The phone gets a real notification once it has turned notifications on.</p>
+      <details class="pr-ploy">
+        <summary class="lbl">Ploy demo in this browser instead</summary>
+        <label class="pr-field">
+          <span class="lbl">Session ID</span>
+          <input id="session" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9_-]{1,80}" placeholder="Filled in when opened from the app’s Presenter menu">
+        </label>
+      </details>
     </section>
 
     <section aria-labelledby="flows-title">

@@ -8,6 +8,8 @@ The chat client defaults to `./api/`. Caddy strips the `/api` prefix before forw
 
 First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Submit `POST /visitor` with a display `name`, optional `food` and optional `budget_thb`. The backend sets a same-origin HTTP-only cookie. Open `/?demo=ploy` for the Ploy scenario. The frontend sets the `X-Zippy-Demo: 1` header and the backend issues a separate demo cookie.
 
+**Leave Ploy demo** opens the guest URL and resumes the guest cookie if present. **Leave guest session** sends `DELETE /visitor` to clear the active HTTP-only cookie and return to setup. The backend retains the old guest records. A display name cannot restore access to a previous guest profile.
+
 ## Chat and shopping
 
 1. Accept `POST /chat` with `{session_id, message}`. The browser generates a conversation ID and the guest cookie scopes it to its owner. Return `application/x-ndjson` and finish with a `done` or `error` event. On return, `GET /sessions` lists conversations and `GET /sessions/{id}` returns ordered chat turns, cards and feed events with `last_feed_id` for polling.
@@ -57,7 +59,7 @@ The reference order is 199 THB plus 30 THB shipping, totaling 229 THB. An exampl
 
 Browser speech recognition supplies interim words where supported. Optionally set the `zippy-transcribe` meta tag to a separate transcription endpoint. Accept multipart `audio` and return `{"text":"…"}`. This fallback transcribes after capture ends. The current FastAPI backend has the meal photo route, but no browser transcription route.
 
-The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add the meal summary to the session feed after storage and analysis succeed. MongoDB holds the meal and its image key. The Food Log response includes a freshly signed `photo_url` when an image is available.
+The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add the meal summary to the session feed after storage and analysis succeed. MongoDB holds the meal and its image key. The Food Log response includes a freshly signed `photo_url` when an image is available. The frontend uses it for the thumbnail and full photo and keeps the meal icon when no image can load.
 
 ## Integration acceptance
 
@@ -81,20 +83,14 @@ Profile › Health data reads `GET /persona` (404 until imported) and imports a 
 
 The Caddy proxy adds the server token to demo routes. Anyone who can reach the frontend can trigger or reset the demo. Restrict the frontend URL or remove the demo routes from the Caddy matcher outside rehearsals.
 
-## Web push (backend work needed)
+## Web push
 
-The frontend is ready: the app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen. The backend needs:
+The app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen.
 
-1. **VAPID keys.** Generate a key pair once and keep the private key in an environment variable, such as `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT=mailto:team@example.com`.
-2. **`GET /push/key`** returns `{"public_key": "<base64url VAPID public key>"}`.
-3. **`POST /push/subscribe`** accepts `{session_id, subscription: {endpoint, expirationTime, keys: {p256dh, auth}}}`. Store subscriptions per session and deduplicate by `endpoint`. The browser posts again whenever a chat first connects, so one device can belong to several sessions.
-4. **Send.** Whenever a feed item with `notify` is emitted, send a push to that session's subscriptions, for example with `pywebpush`. Use this payload, which `sw.js` reads:
+1. **Keys.** The backend reads `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. Generate them with `uv run python -m push` in `BE/`.
+2. **`GET /push/key`** returns `{"public_key": "<base64url>"}`, or 503 when push isn't configured.
+3. **`POST /push/subscribe`** accepts `{session_id, subscription: {endpoint, expirationTime, keys: {p256dh, auth}}}` and stores up to 10 devices per guest, deduplicated by endpoint.
+4. **Send.** Each feed item with `notify` is pushed as `{"title", "body", "url": "./", "tag"}`. The service worker shows `Zippy · <title>` and opens the app on tap. Gone devices (404 or 410) are removed.
+5. **Proxy.** The Caddyfile forwards `/api/push/*` and `/api/presenter/*` with the server token.
 
-   ```json
-   {"title": "Dinner tip", "body": "You're 40 g short on protein today…", "url": "./", "tag": "dinner_tip"}
-   ```
-
-   The service worker shows `Zippy · <title>` and opens `url` on tap. Use a same-origin relative URL. Delete a subscription when the push service answers 404 or 410.
-5. **Proxy.** The Caddyfile already forwards `/api/push/*` with the server token.
-
-Until these routes exist, **Turn on notifications** reports that it couldn't turn notifications on. Chat, pages and the in-app lock screen work without push.
+The presenter dashboard targets a guest by display name with the presenter key (`POST /presenter/trigger`), so a laptop can send a moment to a phone. The Ploy demo session option still works from the same browser.

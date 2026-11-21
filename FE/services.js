@@ -4,7 +4,7 @@
   const page = new URL(location.href);
   const demo = page.searchParams.get('demo') === 'ploy' || page.pathname.endsWith('/presenter.html');
 
-  async function send(url, body, method = body == null ? 'GET' : 'POST') {
+  async function send(url, body, method = body == null ? 'GET' : 'POST', extraHeaders = {}) {
     if (location.protocol === 'file:' && new URL(url, location.href).protocol === 'file:') {
       throw new Error('Open the served Zippy app to connect to the backend.');
     }
@@ -12,7 +12,7 @@
     let response;
     try {
       const target = new URL(url, page);
-      const headers = {};
+      const headers = { ...extraHeaders };
       if (demo && base && target.origin === page.origin && target.href.startsWith(urlFor('').href)) headers['X-Zippy-Demo'] = '1';
       if (body != null && !form) headers['Content-Type'] = 'application/json';
       response = await fetch(target, {
@@ -33,8 +33,8 @@
     return new URL(path, new URL(base.replace(/\/?$/, '/'), location.href));
   }
 
-  async function json(path, body, method) {
-    return (await send(urlFor(path), body, method)).json();
+  async function json(path, body, method, headers) {
+    return (await send(urlFor(path), body, method, headers)).json();
   }
 
   async function chat(sessionId, message, onEvent) {
@@ -141,6 +141,23 @@
             const [label, format] = GOAL_LABELS[goal.key];
             return { label, text: `${format(goal.value)} / ${format(goal.goal)}`, value: goal.value, max: goal.goal, met: goal.met };
           }) }];
+      }
+      case 'weekly_recap': {
+        const meters = [
+          ['Calories / day', data.kcal, data.kcal_goal, 'kcal'],
+          ['Protein / day', data.protein_g, data.protein_goal, 'g'],
+          ['Steps / day', data.steps, data.steps_goal, ''],
+        ].filter(([, value, goal]) => Number.isFinite(value) && Number.isFinite(goal))
+          .map(([label, value, goal, unit]) => ({
+            label, value, max: goal, met: label.startsWith('Calories') ? value <= goal : value >= goal,
+            text: `${amount(value, unit)?.trim()} / ${amount(goal, unit)?.trim()}`,
+          }));
+        return [{ title: `Your last ${data.days} days`, icon: 'insights', meters, rows: [
+          row('Shopee Food', data.orders ? `${data.orders} orders · ${amount(data.spend_thb, 'THB')}` : null),
+          row('Top restaurant', data.top_restaurant),
+          row('Sodium / day', amount(data.sodium_mg, 'mg')),
+          row('Weight', Number.isFinite(data.weight_change_kg) ? `${data.weight_change_kg > 0 ? '+' : ''}${data.weight_change_kg} kg` : null),
+        ] }];
       }
       case 'payment_status':
         return [{ title: data.paid === true ? 'Paid ✓' : 'Payment status', icon: data.paid === true ? 'check' : 'hourglass_top',
