@@ -2,7 +2,7 @@
 
 Run `docker compose up --build frontend` from the repository root, then open [localhost:3000](http://localhost:3000). For a frontend-only preview, run `python3 -m http.server 8765 --bind 127.0.0.1 --directory FE` and open [localhost:8765](http://localhost:8765).
 
-The keyboard replaces the three dock controls with a message bar and **Back**. **Talk to Zippy** starts microphone capture and displays detected words below the three buttons. Tap the middle waveform again to finish and send. Browser dictation needs microphone permission and a supported speech recognition engine. Open **Chat history** for the left drawer. History is stored for the current browser tab.
+The keyboard replaces the three dock controls with a message bar and **Back**. **Talk to Zippy** starts microphone capture and displays detected words below the three buttons. It sends the message when you pause for about 1.5 seconds, or tap the middle waveform to send sooner. Browser dictation needs microphone permission and a supported speech recognition engine, such as Google Chrome's. Open **Chat history** for the left drawer. History is stored for the current browser tab.
 
 Open the menu for **Today**, **Food log**, **Profile** and **Connect apps**. These pages read the backend's `/today`, `/food-log` and `/profile` routes. The menu's **Presenter** section triggers demo moments and opens `presenter.html`, a dashboard for every trigger flow. To install on iPhone, open the HTTPS site in Safari, tap Share, then **Add to Home Screen**. Web push setup and the presenter key are described in [CHAT_API.md](CHAT_API.md#web-push).
 
@@ -14,4 +14,4 @@ Open `/presenter.html` or `/presentor.html` on the Caddy-served app. Enter the p
 
 ## Verification
 
-From the repository root, run `node --test FE/tests/*.cjs`, `node --check` on `FE/app.js`, `FE/markdown.js`, `FE/pages.js`, `FE/push.js`, `FE/presenter.js`, `FE/sw.js` and `FE/voice.js`, and `docker compose config --quiet`. In the browser, open and close the keyboard and history drawer, open each page from the menu, trigger each presenter flow, then verify message sending and how the app handles missing data. On a microphone-enabled browser, verify that dictation updates during speech and stops when you tap the waveform.
+From the repository root, run `node --test FE/tests/*.cjs`, `node --check` on `FE/app.js`, `FE/markdown.js`, `FE/pages.js`, `FE/push.js`, `FE/presenter.js`, `FE/sw.js` and `FE/voice.js`, and `docker compose config --quiet`. In the browser, open and close the keyboard and history drawer, open each page from the menu, trigger each presenter flow, then verify message sending and how the app handles missing data. On a microphone-enabled browser, verify that dictation updates during speech, sends after a pause, and sends at once when you tap the waveform.

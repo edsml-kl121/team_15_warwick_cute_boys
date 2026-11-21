@@ -16,8 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 
-from demo import Clock, DEMO_DATE
-from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
+from demo import Clock
+from integrations import AgentsCoach, BucketImages, MealPhotos, Prompts, Shopee, bucket_client
 from persona import Persona, apply_to_profile
 from push import WebPush, add_subscription
 from recommendations import BucketRecommendationData, RecommendationAgents, RecommendationUnavailable
@@ -37,7 +37,7 @@ class Settings:
         self.origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
         self.shopee_url = os.getenv("SHOPEE_MCP_URL", "https://shopee-sim-production.up.railway.app/mcp")
         self.directory = os.getenv("DATA_DIR", "./data")
-        self.demo_now = os.getenv("DEMO_NOW", f"{DEMO_DATE}T07:02:00+07:00")
+        self.demo_now = os.getenv("DEMO_NOW") or None  # unset: real Bangkok time; set to pin the clock
         self.use_ai = bool(os.getenv("OPENAI_API_KEY"))
         self.live_calls = os.getenv("LIVE_CALLS") == "1"
         self.mongo_url = os.getenv("MONGO_URL")
@@ -154,7 +154,7 @@ def visitor_id(request, demo):
 
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
                phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None,
-               recommendation_data=None):
+               recommendation_data=None, images=None):
     settings = settings or Settings()
     push_sender = push or (WebPush(settings.vapid_public_key, settings.vapid_private_key, settings.vapid_subject)
                            if settings.vapid_public_key and settings.vapid_private_key else None)
@@ -166,6 +166,11 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         prompts = Prompts(prompts_path)
         local_clock = clock or Clock(settings.demo_now)
         adapter = shopee or Shopee(settings.shopee_url)
+        voice_agents = realtime or RealtimeFactory(
+            prompts, os.getenv("REALTIME_MODEL", "gpt-realtime-2.1"), os.getenv("REALTIME_VOICE"),
+            os.getenv("CALL_LANGUAGE", "English"),
+            [code.strip() for code in os.getenv("TRANSCRIPTION_LANGUAGES", "en").split(",") if code.strip()],
+        )
         telephony = phone
         if telephony is None:
             telephony = DemoPhone()
@@ -177,6 +182,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                     os.getenv("TWILIO_PHONE_NUMBER"), os.getenv("TWILIO_PUBLIC_BASE_URL"),
                     {number.strip() for number in os.getenv("TWILIO_VERIFIED_TEST_NUMBERS", "").split(",") if number.strip()},
                     int(os.getenv("RING_TIMEOUT_SECONDS", "40")), int(os.getenv("MAX_CALL_SECONDS", "300")),
+                    realtime=voice_agents,
                 )
         photo_reader = photos
         if photo_reader is None and settings.use_ai:
@@ -190,6 +196,9 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             data = BucketRecommendationData(client, bucket) if client else BucketRecommendationData.connect(
                 bucket, os.getenv("AWS_REGION"), os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
             )
+        menu_images = images or (BucketImages(os.environ["S3_BUCKET"], bucket_client(
+            os.getenv("AWS_REGION"), os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
+        )) if os.getenv("S3_BUCKET") else None)
         demo_date = local_clock.now().date().isoformat()
         mongo_client = None
         db = database
@@ -222,7 +231,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         def build(guest_store, demo):
             return Zippy(guest_store, local_clock, health or DemoHealth(), adapter, prompts,
-                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender)
+                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender, menu_images)
 
         def open_visitor(owner, *, demo, profile=None, create=False):
             if owner and owner not in visitors:
@@ -250,11 +259,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             return None
 
         app.state.booking_service = booking_service
-        app.state.realtime = realtime or RealtimeFactory(
-            prompts, os.getenv("REALTIME_MODEL", "gpt-realtime-2.1"), os.getenv("REALTIME_VOICE"),
-            os.getenv("CALL_LANGUAGE", "English"),
-            [code.strip() for code in os.getenv("TRANSCRIPTION_LANGUAGES", "en,th").split(",") if code.strip()],
-        )
+        app.state.realtime = voice_agents
 
         async def reminders():
             while True:
@@ -531,8 +536,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         return await zippy.buy(body.session_id, body.item_id)
 
     @app.post("/actions/pay", dependencies=protected)
-    async def pay(body: OrderBody, zippy=Depends(service)):
-        return await zippy.payment_url(body.session_id, body.order_id)
+    async def pay(body: OrderBody, request: Request, zippy=Depends(service)):
+        demo_query = "?demo=ploy" if visitor_mode(request) else ""
+        return_url = f"{settings.origin.rstrip('/')}/{demo_query}"
+        return await zippy.payment_url(body.session_id, body.order_id, return_url=return_url)
 
     @app.post("/actions/cancel", dependencies=protected)
     async def cancel(body: OrderBody, zippy=Depends(service)):
@@ -557,7 +564,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     async def fire(zippy, session_id, moment, reminder):
         if moment and not reminder:
-            await zippy.proactive(moment, session_id, demo=True)
+            await zippy.proactive(moment, session_id, demo=True, resend=True)
         elif reminder and not moment:
             async with zippy.mutation:
                 zippy.state["clock"] = f'{zippy.state["date"]}T{reminder}:00+07:00'
@@ -630,20 +637,34 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         await zippy.reset()
         return {"status": "ok"}
 
-    @app.post("/call-status")
-    async def call_status(request: Request, booking_id: str):
+    async def twilio_callback(request, path, booking_id):
         phone = request.app.state.zippy.phone
         if not hasattr(phone, "validator"):
             raise HTTPException(403, "Twilio is disabled.")
         fields = await request.form()
-        url = phone.public_url + "/call-status?" + request.url.query
+        url = phone.public_url + path + "?" + request.url.query
         if not phone.validator.validate(url, fields, request.headers.get("X-Twilio-Signature", "")):
             raise HTTPException(403, "Invalid Twilio signature.")
         zippy = request.app.state.booking_service(booking_id)
         booking = zippy.state["bookings"].get(booking_id) if zippy else None
         if not booking or not fields.get("CallSid") or booking["call_sid"] not in (None, fields["CallSid"]):
             raise HTTPException(404, "Unknown call.")
-        if fields.get("CallStatus") in {"no-answer", "busy", "failed"} or str(fields.get("AnsweredBy", "")).startswith("machine"):
+        return phone, zippy, booking, fields
+
+    @app.post("/call-amd")
+    async def call_amd(request: Request, booking_id: str):
+        phone, zippy, booking, fields = await twilio_callback(request, "/call-amd", booking_id)
+        booking["answered_by"] = str(fields.get("AnsweredBy", ""))
+        zippy.store.save()
+        if booking["answered_by"].startswith("machine") or booking["answered_by"] == "fax":
+            await phone.hang_up(fields["CallSid"])
+        return {"status": "ok"}
+
+    @app.post("/call-status")
+    async def call_status(request: Request, booking_id: str):
+        _, zippy, booking, fields = await twilio_callback(request, "/call-status", booking_id)
+        answered_by = str(fields.get("AnsweredBy") or booking.get("answered_by", ""))
+        if fields.get("CallStatus") in {"no-answer", "busy", "failed"} or answered_by.startswith("machine") or answered_by == "fax":
             status = "no_answer"
         else:
             status = booking.get("result")

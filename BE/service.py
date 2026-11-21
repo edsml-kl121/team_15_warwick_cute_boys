@@ -17,10 +17,10 @@ RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
 
 
 class Zippy:
-    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos, push=None):
+    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos, push=None, images=None):
         self.store, self.clock, self.health = store, clock, health
         self.shopee, self.prompts, self.coach = shopee, prompts, coach
-        self.phone, self.photos, self.push = phone, photos, push
+        self.phone, self.photos, self.push, self.images = phone, photos, push, images
         self.tasks = set()
         self.chat_locks = defaultdict(asyncio.Lock)
         self.mutation = asyncio.Lock()
@@ -126,10 +126,12 @@ class Zippy:
             for key, goal in today["goals"].items()
         ]}
 
-    async def proactive(self, moment, session_id, demo=False):
+    async def proactive(self, moment, session_id, demo=False, resend=False):
         async with self.mutation:
             session = self.session(session_id)
-            if moment in session["moments"]:
+            # Scheduled moments run once, but a presenter must be able to replay a
+            # scene for a demo audience without resetting the entire chat.
+            if moment in session["moments"] and not resend:
                 return
             key = f"proactive.{moment}"
             if demo:
@@ -148,22 +150,8 @@ class Zippy:
                 values = {"protein_g": protein, "protein_goal": goal, "protein_gap": max(0, goal - protein)}
                 kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
                 dinner = pick_meal(self.state.get("persona"), values["protein_gap"], kcal_left, DINNER)
-                places = await self.shopee.call("find_similar_dishes", dish=dinner["dish"],
-                                                calories=dinner["kcal"], protein_g=dinner["protein_g"], limit=35)
-                budget = self.state["profile"]["preferences"]["budget_thb"]
-                by_shop = {}
-                for result in places:
-                    place = result.get("restaurant", result)
-                    dish = result.get("item", result)
-                    protein = dish.get("nutrition", dish).get("protein_g")
-                    if protein is not None and dish["price_thb"] <= budget:
-                        by_shop.setdefault(place["shop_id"], {
-                            "shop_id": place["shop_id"], "name": place["name"], "dish": dish["name"],
-                            "protein_g": protein, "price_thb": dish["price_thb"], "distance_km": place["distance_km"],
-                        })
-                places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
-                session["places"] = places[:3]
-                items = [{"card": {"kind": "meal", **dinner}}]
+                places = await self.find_places(session_id, dinner["dish"], dinner["kcal"], dinner["protein_g"])
+                items = [{"card": {"kind": "meal", **await self.with_image(dinner, "dishes", dinner["dish"])}}]
                 if places:
                     session["pending"] = "walk"
                     nearby = "I found one place nearby." if len(places) == 1 else f"I found {len(session['places'])} places. {places[0]['name']} has the most protein."
@@ -195,6 +183,43 @@ class Zippy:
                 "body": notification,
             }}, *items)
 
+    async def find_products(self, session_id, query):
+        """Search Shopee Mall and remember up to four results so the visitor can buy one."""
+        results = await self.shopee.call("search_products", query=query)
+        products = [{
+            "item_id": row.get("product_id") or row["id"], "name": row["name"], "shop": row["shop"],
+            "price_thb": row["price_thb"], "rating": row["rating"], "image_url": row.get("image_url"),
+            "note": row.get("description") or query.capitalize(),
+        } for row in results[:4]]
+        self.session(session_id)["products"] = products
+        return products
+
+    def product_card(self, products):
+        prices = [product["price_thb"] for product in products]
+        return {"kind": "product_compare", "products": products, "best_item_id": products[0]["item_id"],
+                "more": {"count": max(0, len(products) - 2), "price_range": [min(prices), max(prices)]}}
+
+    async def find_places(self, session_id, dish, calories=None, protein_g=None):
+        """Find nearby Shopee Food places for a dish within budget and remember the top three for booking."""
+        results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
+        budget = self.state["profile"]["preferences"]["budget_thb"]
+        by_shop = {}
+        for result in results:
+            place = result.get("restaurant", result)
+            item = result.get("item", result)
+            protein = item.get("nutrition", item).get("protein_g")
+            if protein is not None and item["price_thb"] <= budget:
+                by_shop.setdefault(place["shop_id"], {
+                    "shop_id": place["shop_id"], "name": place["name"], "dish": item["name"],
+                    "protein_g": protein, "price_thb": item["price_thb"], "distance_km": place["distance_km"],
+                    **({"stock_image_url": place["image_url"]} if place.get("image_url") else {}),
+                })
+        places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
+        self.session(session_id)["places"] = [
+            await self.with_image(place, "restaurants", place["shop_id"]) for place in places[:3]
+        ]
+        return places
+
     async def chat(self, session_id, message):
         session = self.session(session_id)
         answer = message.casefold().strip().replace("’", "'")
@@ -204,23 +229,13 @@ class Zippy:
             yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}
         elif answer == "show me options":
             yield {"type": "tool", "name": "search_products"}
-            results = await self.shopee.call("search_products", query="eye mask")
-            products = [{
-                "item_id": row.get("product_id") or row["id"], "name": row["name"], "shop": row["shop"],
-                "price_thb": row["price_thb"], "rating": row["rating"], "image_url": row.get("image_url"),
-                "note": row.get("description") or "Sleep eye mask",
-            } for row in results[:4]]
+            products = await self.find_products(session_id, "eye mask")
             products.sort(key=lambda product: {"p_eyemask": 0, "p_eyemask_cotton": 1}.get(product["item_id"], 2))
             if not products:
                 yield {"type": "delta", "text": "I couldn't find a matching mask on Shopee Mall."}
                 return
-            best = products[0]
-            session["products"] = products
-            yield {"type": "delta", "text": f"I compared {len(products)} shops on Shopee Mall. {best['note']}."}
-            prices = [product["price_thb"] for product in products]
-            yield {"type": "card", "card": {"kind": "product_compare", "products": products,
-                   "best_item_id": best["item_id"], "more": {"count": max(0, len(products) - 2),
-                   "price_range": [min(prices), max(prices)]}}}
+            yield {"type": "delta", "text": f"I compared {len(products)} shops on Shopee Mall. {products[0]['note']}."}
+            yield {"type": "card", "card": self.product_card(products)}
         elif pending == "walk" and answer in {"yes", "yes, i'll walk", "i'll walk"}:
             session["pending"] = "book"
             name = session["places"][0]["name"]
@@ -264,6 +279,11 @@ class Zippy:
             yield {"type": "delta", "text": f"You've logged {today['totals']['protein_g']} g of protein and {today['totals']['kcal']:,} kcal today."}
         else:
             yield {"type": "delta", "text": "You can ask me about last night's sleep, today's activity, or your meals."}
+
+    async def with_image(self, record, folder, name):
+        """A copy of the record with a bucket picture when one is uploaded, keeping any image it already has."""
+        url = await self.images.find(folder, name) if self.images else None
+        return {**record, "image_url": url} if url else record
 
     def recap_answer(self, answer):
         """Rule-based follow-ups to the weekly recap, built from the imported history."""
@@ -315,11 +335,14 @@ class Zippy:
             raise LookupError("Unknown order.")
         return order
 
-    async def payment_url(self, session_id, order_id):
+    async def payment_url(self, session_id, order_id, return_url=None):
         async with self.mutation:
             if self.owned_order(session_id, order_id)["status"] != "unpaid":
                 raise ValueError("This order is no longer payable.")
-            return await self.shopee.call("request_payment", order_id=order_id)
+            values = {"order_id": order_id}
+            if return_url:
+                values["return_url"] = return_url
+            return await self.shopee.call("request_payment", **values)
 
     async def order_status(self, session_id, order_id, cancel=False):
         async with self.mutation:
@@ -369,19 +392,24 @@ class Zippy:
                 item["card"] = reminder["route"]
             self.emit(reminder["session_id"], item)
 
-    async def book(self, session_id, shop_id):
+    async def book(self, session_id, shop_id, time="19:00", party_size=1, request=None):
         async with self.mutation:
             if any(item["status"] in {"calling", "in_call"} for item in self.state["bookings"].values()):
                 raise ValueError("A booking call is already in progress.")
             listing = next((item for item in self.session(session_id)["places"] if item["shop_id"] == shop_id), None)
             if listing is None:
-                raise ValueError("Choose a restaurant from the dinner suggestions first.")
+                raise ValueError("Choose a restaurant from the suggested places first.")
+            if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", time) or not 1 <= party_size <= 20:
+                raise ValueError("Give the time as HH:MM and a party size from 1 to 20.")
+            if time <= self.now().strftime("%H:%M"):
+                raise ValueError("That time has already passed today. Choose a later time.")
             place = await self.shopee.call("get_menu", shop_id=shop_id)
             self.phone.validate(place.get("phone", ""))
             booking_id = uuid.uuid4().hex
             booking = {
                 "id": booking_id, "shop_id": shop_id, "restaurant_name": place["name"], "phone": place.get("phone", ""),
-                "party_size": 1, "time": "19:00", "name": self.state["profile"]["name"], "status": "calling",
+                "party_size": party_size, "time": time, "name": self.state["profile"]["name"], "status": "calling",
+                "request": (request or f"a table for {party_size} at {time}").strip()[:300],
                 "call_sid": None, "duration_s": None, "quote": None, "created_at": self.now().isoformat(),
                 "session_id": session_id, "distance_km": listing["distance_km"],
                 "maps_query": place.get("address") or f"{place['name']} Bangkok",
@@ -404,6 +432,8 @@ class Zippy:
             self.emit(booking["session_id"], {"header_status": "in_call"})
 
     async def finish_call(self, booking_id, status, duration=None):
+        if hasattr(self.phone, "discard"):
+            await self.phone.discard(booking_id)
         async with self.mutation:
             booking = self.state["bookings"].get(booking_id)
             if not booking or booking["status"] not in {"calling", "in_call"}:

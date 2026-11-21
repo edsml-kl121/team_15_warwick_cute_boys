@@ -74,7 +74,6 @@ function finished(ok, title, sub, redirectUrl) {
   app.replaceChildren(el("div", { class: "done" }, el("div", { class: "tick" + (ok ? "" : " bad") }, ok ? "✓" : "✕"),
     el("div", { style: "font-size:18px;font-weight:500" }, title), el("div", { style: "color:#888;margin-top:6px" }, sub)),
     el("a", { class: "cta", href: redirectUrl || "/" }, redirectUrl ? "Back to Zippy" : "View my purchases"));
-  if (redirectUrl) setTimeout(() => location.replace(redirectUrl), 700);
 }
 
 function approved(payment) {

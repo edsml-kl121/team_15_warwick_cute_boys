@@ -35,7 +35,14 @@ button:disabled { cursor: wait; opacity: .65; }
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand h1 { margin: 0; font-size: 17px; }
 .brand img { width: 29px; height: 29px; }
-.chat { overflow: auto; justify-content: safe flex-end; scrollbar-width: none; }
+.chat { overflow: auto; overflow-anchor: none; justify-content: safe flex-end; scrollbar-width: none; }
+.chat:has(.empty-chat[hidden]) {
+  --chat-fade-height: 32px;
+  /* Keep the first message clear of the fade when scrolled all the way up. */
+  padding-top: var(--chat-fade-height);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--chat-fade-height));
+  mask-image: linear-gradient(to bottom, transparent, black var(--chat-fade-height));
+}
 .chat > * { flex-shrink: 0; }
 .empty-chat { flex: 1; display: grid; place-content: center; justify-items: center; gap: 14px; }
 .empty-mascot { width: 104px; height: auto; filter: drop-shadow(0 10px 18px #151c271f); animation: mascot-bob 3.2s ease-in-out infinite; }
@@ -73,7 +80,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .card-group.carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
 .carousel .result-card { flex: 0 0 min(260px, 83%); scroll-snap-align: start; }
 .quick-replies { display: flex; flex-wrap: wrap; gap: 8px; }
-.result-card > a, .order-link { text-decoration: none; }
+.result-card > a { text-decoration: none; }
 
 .dock { display: block; padding: 6px 14px max(22px, env(safe-area-inset-bottom)); min-height: 92px; }
 .dock-keyboard { display: flex; align-items: center; gap: 8px; min-height: 64px; animation: rise-in 220ms cubic-bezier(.2, .7, .3, 1) both; }
@@ -391,3 +398,4 @@ button:disabled { cursor: wait; opacity: .65; }
 .card.pad .import-btn { margin: 0; }
 .card.pad > p { margin: 0; }
 .health-note { padding: 10px 0 0; margin: 0; border-top: 1px solid #ebe9e2; }
+.list-thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: #efdfce; }

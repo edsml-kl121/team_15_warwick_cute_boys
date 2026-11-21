@@ -35,7 +35,7 @@ From the repository root, `docker compose up --build mcp` serves the UI at
 Set `SIM_RETURN_ORIGIN` to the Zippy frontend origin, for example
 `http://localhost:3000`. Pass the full page URL as `return_url` to
 `request_payment` and open the returned `approve_url`. After PIN approval,
-the simulator returns the browser to that page with
+**Back to Zippy** opens that page with
 `payment_status=approved` and `order_id`, preserving the URL's other query
 parameters and fragment. Confirm the order using `get_order_status` or the
 backend status endpoint. With no return URL, the payment page shows a receipt.

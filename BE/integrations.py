@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import re
 import uuid
 from base64 import b64encode
 from contextlib import asynccontextmanager, suppress
@@ -17,7 +18,7 @@ from persona import recommendation_context
 
 class Prompts:
     expected = {
-        "coach.shared": set(), "coach.chat_style": set(),
+        "coach.shared": set(), "coach.chat_style": set(), "coach.turn_reminder": set(), "coach.time_context": {"now"},
         "proactive.morning_sleep.notification": set(),
         "proactive.morning_sleep.intro": set(),
         "proactive.morning_sleep.follow_up": set(),
@@ -28,7 +29,8 @@ class Prompts:
         "proactive.weekly_recap.notification": {"headline"},
         "proactive.weekly_recap.intro": {"days", "name"},
         "recommendation.food": set(), "recommendation.item": set(),
-        "phone.rules": {"language"}, "phone.book_table": {"restaurant_name", "party_size", "time", "name"},
+        "phone.rules": {"language"}, "phone.book_table": {"restaurant_name", "party_size", "time", "name", "request"},
+        "phone.greeting": {"restaurant_name", "name", "request"},
     }
 
     def __init__(self, path):
@@ -101,20 +103,56 @@ class MealEstimate(BaseModel):
     uncertainty: str = Field(max_length=240)
 
 
+def bucket_client(region, endpoint, addressing_style):
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        "s3", region_name=region, endpoint_url=endpoint,
+        config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style},
+                      connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 2}),
+    )
+
+
+def image_slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", str(text).casefold()).strip("-")[:80]
+
+
+class BucketImages:
+    """Menu and restaurant pictures uploaded to the bucket as dishes/<slug>.jpg and restaurants/<shop_id>.jpg."""
+
+    EXTENSIONS = ("jpg", "webp", "png")
+
+    def __init__(self, bucket, client):
+        self.bucket, self.client = bucket, client
+        self.found = set()  # Hits only: a picture uploaded later shows up without a restart.
+
+    def _signed(self, key):
+        if key not in self.found:
+            try:
+                self.client.head_object(Bucket=self.bucket, Key=key)
+            except Exception:
+                return None
+            self.found.add(key)
+        return self.client.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key},
+                                                  ExpiresIn=3600)
+
+    async def find(self, folder, name):
+        stem = image_slug(name)
+        if not stem:
+            return None
+        for extension in self.EXTENSIONS:
+            url = await asyncio.to_thread(self._signed, f"{folder}/{stem}.{extension}")
+            if url:
+                return url
+        return None
+
+
 class MealPhotos:
     def __init__(self, bucket, region, endpoint, addressing_style, model):
         self.bucket = bucket
         self.model = model
-        self.client = None
-        if bucket:
-            import boto3
-            from botocore.config import Config
-
-            self.client = boto3.client(
-                "s3", region_name=region, endpoint_url=endpoint,
-                config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style},
-                              connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 2}),
-            )
+        self.client = bucket_client(region, endpoint, addressing_style) if bucket else None
 
     async def read(self, image, key):
         from openai import AsyncOpenAI
@@ -191,12 +229,8 @@ class AgentsCoach:
     def __init__(self, prompts):
         self.prompts = prompts
 
-    async def stream(self, service, session_id, message, history):
-        from agents import Agent, Runner, function_tool
-        from agents.model_settings import ModelSettings
-        from openai.types.shared import Reasoning
-
-        cards = asyncio.Queue()
+    def tools(self, service, session_id, cards):
+        from agents import function_tool
 
         @function_tool
         async def get_sleep_last_night() -> dict:
@@ -233,11 +267,71 @@ class AgentsCoach:
             """Read today's logged meals and totals."""
             return service.food_log(service.state["date"])
 
+        @function_tool
+        async def show_products(query: str) -> dict:
+            """Search Shopee Mall for something the visitor wants to buy and display up to four products as cards
+            they can review and buy. Use a short shopping query, e.g. "eye mask" or "protein bar"."""
+            products = await service.find_products(session_id, query)
+            if not products:
+                return {"kind": "product_compare", "products": []}
+            card = service.product_card(products)
+            cards.put_nowait(card)
+            return card
+
+        @function_tool
+        async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
+            """Find Shopee Food places near the visitor that serve this dish within their budget and display them.
+            Only these places can be booked. Use the returned shop_id with book_table_by_phone.
+
+            Args:
+                dish: A concrete dish, e.g. "grilled chicken salad".
+                protein_g: Optional protein target in grams; also surfaces similar dishes when no name matches.
+                calories: Optional calorie target for the dish.
+            """
+            await service.find_places(session_id, dish, calories, protein_g)
+            card = {"kind": "places", "places": service.session(session_id)["places"]}
+            if card["places"]:
+                cards.put_nowait(card)
+            return card
+
+        @function_tool
+        async def book_table_by_phone(shop_id: str, time: str, party_size: int, request: str) -> dict:
+            """Phone a place from find_similar_dishes to book a table. Use only after the visitor has agreed to
+            this place, the time (24-hour HH:MM) and the party size. The call result arrives in their feed.
+
+            Args:
+                request: What the visitor asked for, in their own words, including any extra wishes. The phone
+                    agent opens the call with it, e.g. "a table for 2 at 7:30 pm, by the window if possible".
+            """
+            booking = await service.book(session_id, shop_id, time, party_size, request)
+            return {key: booking[key] for key in ("id", "restaurant_name", "time", "party_size", "status")}
+
+        return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history,
+                show_products, find_similar_dishes, book_table_by_phone]
+
+    def input(self, service, session_id, message, history):
+        """Chat history keeps only text, so restate the bookable places and their shop IDs every turn.
+        The language reminder sits right before the message because the model mirrors the visitor's language."""
+        places = service.session(session_id)["places"]
+        context = [{"role": "developer", "content": "Places the visitor can book now: " + json.dumps(
+            [{key: place[key] for key in ("shop_id", "name", "dish", "price_thb", "distance_km")} for place in places],
+            ensure_ascii=False)}] if places else []
+        now = {"role": "developer", "content": self.prompts.render(
+            "coach.time_context", now=service.now().strftime("%A %Y-%m-%d %H:%M"))}
+        reminder = {"role": "developer", "content": self.prompts.get("coach.turn_reminder")}
+        return [*history[-12:], *context, now, reminder, {"role": "user", "content": message}]
+
+    async def stream(self, service, session_id, message, history):
+        from agents import Agent, Runner
+        from agents.model_settings import ModelSettings
+        from openai.types.shared import Reasoning
+
+        cards = asyncio.Queue()
         agent = Agent(name="Zippy", instructions="\n".join(
             self.prompts.get(key) for key in ("coach.shared", "coach.chat_style")
         ), model_settings=ModelSettings(reasoning=Reasoning(effort="none")),
-            tools=[get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history])
-        run = Runner.run_streamed(agent, [*history[-12:], {"role": "user", "content": message}], max_turns=4)
+            tools=self.tools(service, session_id, cards))
+        run = Runner.run_streamed(agent, self.input(service, session_id, message, history), max_turns=4)
         try:
             async for event in run.stream_events():
                 if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":

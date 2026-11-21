@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from demo import Clock, DEMO_DATE, seed
+from demo import Clock, seed
 
 
 DATASET = "ploy-v1"
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     from pymongo import MongoClient
 
     load_dotenv()
-    clock = Clock(os.getenv("DEMO_NOW", f"{DEMO_DATE}T07:02:00+07:00"))
+    clock = Clock(os.getenv("DEMO_NOW") or None)
     with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=5000) as client:
         database = client[os.getenv("MONGO_DATABASE") or "zippy"]
         initialize_mongo(database, clock.now().date().isoformat())

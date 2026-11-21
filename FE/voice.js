@@ -7,7 +7,10 @@
     network: 'Speech recognition couldn’t connect. Try again, or type your message.',
   };
 
-  window.createZippyVoice = ({ onState, onTranscript, transcribe }) => {
+  // How long the speaker must pause after their last words before the message counts as finished.
+  const PAUSE_MS = 1500;
+
+  window.createZippyVoice = ({ onState, onTranscript, onPause, transcribe }) => {
     let cancel = () => {};
     let finish = () => {};
     let current = 0;
@@ -18,25 +21,30 @@
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.onstart = () => {
-        if (session === current) onState('listening', 'Listening…');
+        if (session === current) onState('listening', 'Listening… I’ll send when you pause.');
       };
       let heard = false;
+      let pauseTimer;
       recognition.onresult = ({ results }) => {
         if (session !== current) return;
         const text = Array.from(results, result => result[0].transcript).join(' ').trim();
         heard = Boolean(text);
         onTranscript(text);
+        clearTimeout(pauseTimer);
+        if (heard) pauseTimer = setTimeout(() => { if (session === current) onPause?.(); }, PAUSE_MS);
       };
       let errorMessage;
       recognition.onerror = ({ error }) => {
         errorMessage = speechErrors[error] || 'Voice input is unavailable. You can still type.';
       };
       recognition.onend = () => {
+        clearTimeout(pauseTimer);
         if (session === current) {
+          if (heard && !errorMessage) onPause?.();
           onState('idle', errorMessage || (heard ? 'Tap the waveform to send.' : speechErrors['no-speech']));
         }
       };
-      cancel = () => recognition.abort();
+      cancel = () => { clearTimeout(pauseTimer); recognition.abort(); };
       finish = () => recognition.stop();
       recognition.start();
     }

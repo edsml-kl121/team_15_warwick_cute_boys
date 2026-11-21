@@ -21,7 +21,7 @@ From the repository root, run `docker compose build backend` to verify the conta
 
 On Railway, set a separate shared `API_TOKEN` in Backend → Variables and give the frontend server the same value. Set `FRONTEND_ORIGIN` to the deployed frontend's origin. Use Railway's injected `PORT` and the backend image's default listen address. The local `.env` stays out of Git and the Docker image.
 
-Use `DEMO_NOW` to set the starting clock in Bangkok. The default is 07:02 on 21 November 2026. The demo reset only cancels unpaid orders created in that run.
+The clock uses the real time in Bangkok. Set `DEMO_NOW`, for example to `2026-11-21T07:02:00+07:00`, to pin it for a rehearsal. The demo reset only cancels unpaid orders created in that run.
 
 ## Guest storage on Railway
 
@@ -53,6 +53,8 @@ Keep one Backend replica. Local runs without `MONGO_URL` use scoped JSON files u
 `PUT /persona` imports a visitor's own health history as one JSON document (`profile`, `food_history_log`, `wearable_daily`, `workouts`, `weights`, `body_composition_scans`). The backend validates it, stores it on the guest, applies the calorie and macro targets, name, area, tastes and connected sources to the profile, and merges that day's meals into `GET /food-log`. The coach's `get_health_history` tool returns a compact summary of it, never the raw log. `GET /persona` returns the stored document.
 
 Set `OPENAI_API_KEY` to enable meal scanning. Each scan sends a resized JPG to one vision model using the Responses API and saves the estimated foods, portions and totals. The default `FOOD_SCAN_MODEL` is `gpt-4.1-mini`. When the optional storage bucket is configured, it stores JPEG food images, MongoDB saves each image's object key, and the backend issues a fresh signed URL for display.
+
+Menu and restaurant pictures for recommendation cards also come from the bucket. Upload them as `dishes/<dish-slug>.jpg` and `restaurants/<shop_id>.jpg` (`.webp` and `.png` also work). The slug is the dish name in lowercase with runs of other characters replaced by `-`, for example `dishes/spaghetti-bolognese.jpg` or `restaurants/s_easy_health.jpg`. The backend signs a URL when the file exists, even without `OPENAI_API_KEY`. Otherwise the app falls back to its bundled demo photos, then to the simulator's cuisine photo.
 
 ## Web push and presenter
 
