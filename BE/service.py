@@ -105,10 +105,12 @@ class Zippy:
             for key, goal in today["goals"].items()
         ]}
 
-    async def proactive(self, moment, session_id, demo=False):
+    async def proactive(self, moment, session_id, demo=False, resend=False):
         async with self.mutation:
             session = self.session(session_id)
-            if moment in session["moments"]:
+            # Scheduled moments run once, but a presenter must be able to replay a
+            # scene for a demo audience without resetting the entire chat.
+            if moment in session["moments"] and not resend:
                 return
             key = f"proactive.{moment}"
             if demo:

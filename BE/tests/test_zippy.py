@@ -199,14 +199,16 @@ def use_tool(client, tools, name, **arguments):
     return result
 
 
-def test_sleep_and_checkout(tmp_path):
+def test_sleep_trigger_can_be_replayed_from_the_presenter(tmp_path):
     with demo(tmp_path) as (client, simulator):
         assert client.post("/demo/trigger", json={"moment": "morning_sleep"}).is_success
         feed = client.get("/feed").json()
         assert feed[0]["notify"]["title"] == "Sleep insight"
         assert cards(feed)[0]["deep_minutes"] == 58
         assert client.post("/demo/trigger", json={"moment": "morning_sleep"}).is_success
-        assert client.get(f"/feed?after={feed[-1]['id']}").json() == []
+        replay = client.get(f"/feed?after={feed[-1]['id']}").json()
+        assert replay[0]["notify"]["title"] == "Sleep insight"
+        assert cards(replay)[0]["deep_minutes"] == 58
         assert cards(say(client, "How did I sleep?"))[0]["deep_minutes"] == 58
         assert cards(say(client, "Show me options"))[0]["products"][0]["price_thb"] == 199
         order = client.post("/actions/buy", json={"item_id": "p_eyemask"}).json()

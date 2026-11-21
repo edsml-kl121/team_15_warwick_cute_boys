@@ -524,7 +524,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     async def fire(zippy, session_id, moment, reminder):
         if moment and not reminder:
-            await zippy.proactive(moment, session_id, demo=True)
+            await zippy.proactive(moment, session_id, demo=True, resend=True)
         elif reminder and not moment:
             async with zippy.mutation:
                 zippy.state["clock"] = f'{zippy.state["date"]}T{reminder}:00+07:00'
