@@ -7,24 +7,13 @@ import json
 import re
 from pathlib import Path
 
-IMG = "https://images.unsplash.com/{}?w=600&q=70"
-
 DEFAULT_LOCATION = {"lat": 13.7246, "lng": 100.5293}  # Silom, Bangkok
 
-# Real Bangkok branches researched Nov 2026 (prices from LINE MAN/Wongnai or the
-# restaurant's own site). Nutrition is "official" only where the restaurant
-# publishes it; everything else is a per-serving estimate. See app/data/restaurants.json.
+# Real Bangkok locations with prices and nutrition from the sources listed in the
+# seed. Entries with price_source="simulated" use demo prices and nutrition estimates.
 DATA = Path(__file__).parent / "data" / "restaurants.json"
+RESTAURANT_PHOTOS = json.loads(DATA.with_name("restaurant_photos.json").read_text())
 NUTRIENTS = ("calories", "protein_g", "carbs_g", "fat_g", "sodium_mg")
-CUISINE_IMG = {
-    "healthy": "photo-1512621776951-a57141f2eefd",
-    "suki": "photo-1547592180-85f173990554",
-    "thai": "photo-1569058242253-92a9c755a0ec",
-    "thai_isan": "photo-1559314809-0d155014e29e",
-    "japanese": "photo-1579871494447-9811cf80d66c",
-    "italian": "photo-1513104890138-7c749659a591",
-    "cafe": "photo-1509440159596-0249088772ff",
-}
 
 
 def _slug(text: str) -> str:
@@ -43,7 +32,7 @@ def _shop(raw: dict) -> dict:
         "rating": raw["rating"],
         "lat": raw["lat"],
         "lng": raw["lng"],
-        "image_url": IMG.format(CUISINE_IMG.get(raw["cuisine"], CUISINE_IMG["thai"])),
+        "image_credit": RESTAURANT_PHOTOS[shop_id],
         "menu": [_item(shop_id, i, m) for i, m in enumerate(raw["menu"], 1)],
     }
 
@@ -55,6 +44,7 @@ def _item(shop_id: str, index: int, m: dict) -> dict:
         "name": m["name"],
         "name_th": m.get("name_th"),
         "price_thb": m["price_thb"],
+        **({"price_source": m["price_source"]} if "price_source" in m else {}),
         "nutrition": {k: m[k] for k in NUTRIENTS},
         "nutrition_source": m["nutrition_source"],
     }
@@ -62,8 +52,8 @@ def _item(shop_id: str, index: int, m: dict) -> dict:
 
 RESTAURANTS = [_shop(r) for r in json.loads(DATA.read_text())]
 
-# Shops are fictional. All product photos are from Wikimedia Commons, each checked by eye,
-# and copied into app/static/products/ (Wikimedia throttles bursts of hotlinked images).
+# Shops are fictional. Product photos are served from app/static/products/.
+# Licensed Wikimedia assets retain a source URL. Original demo images have no external source.
 # Licenses: public domain (Schlafmaske, Sleep_mask), CC0 (Hotel_bedroom_windows),
 # CC BY 2.0 (Handmade_sleepmasks_eyemasks_Paris), CC BY-SA 3.0 (Masque_de_sommeil,
 # A_pair_of_orange_foam_earplugs, Magnesium_tablets), CC BY-SA 4.0 (Nasenpflaster_aus_Seide,
@@ -165,6 +155,66 @@ MALL_PRODUCTS = [
         WIKIMEDIA + "thumb/1/1e/Wa%C5%82ek_do_masa%C5%BCu.jpg/500px-Wa%C5%82ek_do_masa%C5%BCu.jpg",
         "FitPro Sports",
     ),
+    (
+        "p_gel_eye_pads",
+        "Reusable Cooling Gel Under-Eye Pads",
+        "sleep",
+        149,
+        4.6,
+        "Two crescent-shaped cooling gel eye pads. Chill before use and wipe clean afterward.",
+        None,
+        "Dreamy Sleep Official",
+    ),
+    (
+        "p_neck_pillow",
+        "Memory Foam Travel Neck Pillow",
+        "sleep",
+        329,
+        4.5,
+        "U-shaped pillow with a clasp and removable fabric cover.",
+        None,
+        "Bangkok Travel Gear",
+    ),
+    (
+        "p_white_noise",
+        "Compact White Noise Machine",
+        "sleep",
+        549,
+        4.7,
+        "USB-powered bedside speaker with white noise, rain and fan sounds.",
+        None,
+        "HomeRest Store",
+    ),
+    (
+        "p_yoga_mat",
+        "Non-Slip Yoga Mat 6 mm",
+        "recovery",
+        429,
+        4.6,
+        "Textured exercise mat for yoga, stretching and floor exercises.",
+        None,
+        "FitPro Sports",
+    ),
+    (
+        "p_resistance_bands",
+        "Loop Resistance Band Set (3 Pack)",
+        "recovery",
+        219,
+        4.5,
+        "Three closed-loop bands in light, medium and firm resistance.",
+        None,
+        "FitPro Sports",
+    ),
+    (
+        "p_insulated_bottle",
+        "Insulated Stainless Steel Water Bottle 750 ml",
+        "recovery",
+        399,
+        4.8,
+        "Double-wall bottle with a screw lid and carry loop.",
+        None,
+        "Bangkok Travel Gear",
+    ),
 ]
 
 
@@ -178,6 +228,6 @@ def product(row: tuple) -> dict:
         "price_thb": price,
         "rating": rating,
         "description": desc,
-        "image_path": f"/static/products/{pid}.jpg",  # self-hosted copy of image_source
+        "image_path": f"/static/products/{pid}.jpg",
         "image_source": img,
     }

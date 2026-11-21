@@ -37,8 +37,21 @@
     return (await send(urlFor(path), body, method, headers)).json();
   }
 
-  async function chat(sessionId, message, onEvent) {
-    const response = await send(urlFor('chat'), { session_id: sessionId, message });
+  function currentLocation() {
+    const geolocation = globalThis.navigator?.geolocation;
+    if (demo || !geolocation) return Promise.resolve(null);
+    return new Promise(resolve => {
+      const round = value => Math.round(value * 1000) / 1000;
+      geolocation.getCurrentPosition(({ coords }) => {
+        resolve({ lat: round(coords.latitude), lng: round(coords.longitude) });
+      }, () => resolve(null), { maximumAge: 60000, timeout: 5000, enableHighAccuracy: false });
+    });
+  }
+
+  async function chat(sessionId, message, onEvent, restaurantLocation) {
+    const body = { session_id: sessionId, message };
+    if (!demo && restaurantLocation) body.location = restaurantLocation;
+    const response = await send(urlFor('chat'), body);
     await readEvents(response, onEvent, 'chat', 'The reply was interrupted. You can retry it.');
   }
 
@@ -123,12 +136,20 @@
         return productCards(data);
       case 'places':
         return [{ title: 'Places nearby', source: 'shopee', sourceLabel: 'Shopee Food', icon: 'restaurant',
-          items: (data.places || []).map(place => ({
-            title: place.name,
-            detail: [place.dish, amount(place.price_thb, 'THB'), amount(place.distance_km, 'km')].filter(Boolean).join(' · '),
-            value: amount(place.protein_g, 'g protein'),
-            imageUrl: place.image_url || localImage(place.name) || place.stock_image_url,
-          })), note: 'Menus and nutrition from Shopee Food' }];
+          description: data.location_source === 'current' ? 'Near your current location'
+            : data.location_source === 'silom' ? 'Near Silom, Bangkok' : null,
+          items: (data.places || []).map(place => {
+            const creditedStock = place.stock_image_credit ? place.stock_image_url : null;
+            const imageUrl = place.image_url || creditedStock || localImage(place.name) || place.stock_image_url;
+            return {
+              title: place.name,
+              detail: [place.dish, amount(place.price_thb, 'THB'), amount(place.distance_km, 'km')].filter(Boolean).join(' · '),
+              value: amount(place.protein_g, 'g protein'),
+              imageUrl,
+              imageCredit: place.image_url ? place.image_credit : (creditedStock ? place.stock_image_credit : undefined),
+              orderItemId: data.orderable === true ? place.item_id : undefined,
+            };
+          }), note: 'Menus and nutrition from Shopee Food' }];
       case 'sleep_insight':
         return [{ title: 'Deep sleep', icon: 'bedtime', value: duration(data.deep_minutes),
           description: data.shortfall_minutes > 0 ? `${duration(data.shortfall_minutes)} short of your ${duration(data.goal_minutes)} goal` : 'Deep sleep goal met',
@@ -182,7 +203,7 @@
       case 'payment_status':
         return [{ title: data.paid === true ? 'Paid ✓' : 'Payment status', icon: data.paid === true ? 'check' : 'hourglass_top',
           source: 'shopee', description: data.item?.name, value: amount(data.total_thb, 'THB'),
-          rows: [row('Arrival', data.arrival_date)], chips: Array.isArray(data.chips) ? data.chips : [] }];
+          rows: [row('Arrival', data.arrival_date ?? duration(data.eta_min))], chips: Array.isArray(data.chips) ? data.chips : [] }];
       case 'reminder':
         return [{ title: `Reminder set · ${data.at}`, icon: 'alarm', description: data.message }];
       default:
@@ -208,6 +229,6 @@
   }
 
   window.zippyService = {
-    chat, cards, json, photo, demo, transcribe: transcription ? transcribe : null,
+    chat, cards, json, photo, demo, currentLocation, transcribe: transcription ? transcribe : null,
   };
 })();

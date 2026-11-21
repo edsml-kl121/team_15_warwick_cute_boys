@@ -144,10 +144,10 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `GET /today` | Frontend reads recovery, sleep, nutrition, activity and upcoming actions |
 | `GET /food-log?date=` | Frontend reads meals and totals |
 | `POST /food-log/photo` | Frontend uploads a meal photo |
-| `POST /chat` | Frontend receives streamed NDJSON |
+| `POST /chat` | Frontend receives streamed NDJSON. Regular guest chat accepts optional browser `location: {lat, lng}` for restaurant search. |
 | `GET /sessions`, `GET /sessions/{id}` | List and restore the visitor's chats, with their cards and feed cursor |
 | `GET /feed?session_id=&after=` | Frontend polls every 1–2 seconds for proactive and asynchronous items |
-| `POST /actions/buy`, `POST /actions/pay` | Frontend places a Mall order and requests payment |
+| `POST /actions/buy`, `POST /actions/pay` | Frontend places a Mall order or a guest-chat Food order with `kind: "food"`, then requests payment |
 | `GET /shopee-orders/{id}` | Frontend polls order status while the PIN page is open |
 | `GET /bookings/{id}` | Frontend checks booking status |
 | `POST /proactive {moment}` | Cron or demo triggers `morning_sleep`, `dinner_tip`, `daily_summary` or `weekly_recap` |
@@ -187,7 +187,7 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 | `payment_status` | Paid, item, total, arrival, chips |
 | `reminder` | `at, message` |
 | `meal` | `dish, kcal, protein_g, why` |
-| `places` | Entries with `shop_id, name, dish, protein_g, price_thb, distance_km` |
+| `places` | `location_source`, `orderable`, and entries with `shop_id, item_id, name, dish, protein_g, price_thb, distance_km` plus optional `image_url`, `stock_image_url` and `stock_image_credit` |
 | `activity` | `steps, steps_goal_pct, active_minutes` |
 | `call` | `restaurant, status, duration_s, quote`. Status is `calling`, `no_answer` or `ended`. |
 | `walk_route` | `minutes, leave_by, maps_url` |

@@ -55,12 +55,20 @@ class SessionBody(BaseModel):
     session_id: str = Field(default="ploy", pattern=SESSION_ID)
 
 
+class SearchLocation(BaseModel):
+    lat: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    lng: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
 class ChatBody(SessionBody):
     message: str = Field(min_length=1, max_length=1500)
+    location: SearchLocation | None = None
 
 
 class BuyBody(SessionBody):
     item_id: str = Field(min_length=1, max_length=100)
+    kind: Literal["mall", "food"] = "mall"
+    location: SearchLocation | None = None
 
 
 class OrderBody(SessionBody):
@@ -499,13 +507,14 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         message = body.message.strip()
         if not message:
             raise HTTPException(422, "Enter a message first.")
+        location = body.location.model_dump() if body.location else None
 
         async def events():
             async with zippy.chat_locks[body.session_id]:
                 session = zippy.session(body.session_id)
                 recorded = []
                 try:
-                    async for event in zippy.chat(body.session_id, message):
+                    async for event in zippy.chat(body.session_id, message, location=location):
                         if event["type"] == "delta" and recorded and recorded[-1]["type"] == "delta":
                             recorded[-1]["text"] += event["text"]
                         else:
@@ -531,7 +540,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     @app.post("/actions/buy", dependencies=protected)
     async def buy(body: BuyBody, zippy=Depends(service)):
-        return await zippy.buy(body.session_id, body.item_id)
+        location = body.location.model_dump() if body.location else None
+        return await zippy.buy(body.session_id, body.item_id, kind=body.kind, location=location)
 
     @app.post("/actions/pay", dependencies=protected)
     async def pay(body: OrderBody, request: Request, zippy=Depends(service)):

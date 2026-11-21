@@ -38,6 +38,10 @@ class FakeShopee:
             assert values == {"items": [{"product_id": "p_eyemask", "qty": 1}]}
             self.status = "pending_payment"
             return {"id": "order-1", "shipping_thb": 30, "total_thb": 229, "eta_days": 1}
+        if name == "place_food_order":
+            self.status = "pending_payment"
+            return {"order_id": "food-1", "subtotal_thb": 265, "delivery_fee_thb": 19,
+                    "total_thb": 284, "eta_min": 17}
         if name == "request_payment":
             return {"approve_url": "https://sim.example/pay/demo"}
         if name == "get_order_status":
@@ -47,10 +51,11 @@ class FakeShopee:
             return {"status": self.status}
         if name == "find_similar_dishes":
             self.dish_searches = [*getattr(self, "dish_searches", []), values]
-            return [{"shop_id": shop_id, "name": "Caesar chicken", "price_thb": price,
+            return [{"shop_id": shop_id, "item_id": f"m_{shop_id[2:]}_1", "name": "Caesar chicken", "price_thb": price,
                      "nutrition": {"protein_g": protein},
                      "restaurant": {"shop_id": shop_id, "name": title, "distance_km": distance,
-                                    "image_url": f"https://sim.example/{shop_id}.jpg"}}
+                                    "image_url": f"https://sim.example/{shop_id}.jpg",
+                                    "image_credit": {"representative": True, "caption": "Grilled chicken salad"}}}
                     for shop_id, title, price, protein, distance in [
                         ("s_easy_health", "Easy Health", 265, 45, 1.25),
                         ("s_salad_factory", "Salad Factory", 245, 35, .83),
@@ -232,12 +237,70 @@ def test_sleep_trigger_can_be_replayed_from_the_presenter(tmp_path):
         assert kinds.count("reminder") == 1
 
 
+def test_guest_chat_searches_from_device_location_and_can_order_a_listed_dish(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        client.headers.pop("X-Zippy-Demo")
+        assert client.post("/visitor", json={"name": "Guest"}).is_success
+        session_id = "guest-food"
+        position = {"lat": 13.747, "lng": 100.54}
+        response = client.post("/chat", json={
+            "session_id": session_id, "message": "Find food near me", "location": position,
+        })
+        events = [json.loads(line) for line in response.iter_lines()]
+        assert events[-1]["type"] == "done", events
+        assert simulator.dish_searches[-1] == {
+            "dish": "Grilled chicken salad", "calories": 400,
+            "protein_g": 35, "limit": 35, **position,
+        }
+        card, = cards(events)
+        assert card["kind"] == "places" and card["orderable"]
+        assert card["location_source"] == "current"
+        assert card["places"][0]["item_id"] == "m_easy_health_1"
+        saved = client.get(f"/sessions/{session_id}").json()
+        assert str(position["lat"]) not in json.dumps(saved)
+
+        body = {"session_id": session_id, "kind": "food", "location": position}
+        unknown = client.post("/actions/buy", json={**body, "item_id": "m_unknown_1"})
+        assert unknown.status_code == 400
+        summary = client.post("/actions/buy", json={**body, "item_id": "m_easy_health_1"}).raise_for_status().json()
+        assert summary["item"]["name"] == "Caesar chicken"
+        assert (summary["shipping_thb"], summary["total_thb"], summary["eta_min"]) == (19, 284, 17)
+        assert summary["delivery_area"] == "Current location"
+        assert ("place_food_order", {"items": [{"item_id": "m_easy_health_1", "qty": 1}], **position}) in simulator.calls
+
+        order = {"session_id": session_id, "order_id": summary["order_id"]}
+        payment = client.post("/actions/pay", json=order).raise_for_status().json()
+        assert payment["approve_url"] == "https://sim.example/pay/demo"
+        path = f"/shopee-orders/{order['order_id']}?session_id={session_id}"
+        assert client.get(path).json() == {"status": "unpaid"}
+        simulator.status = "preparing"
+        assert client.get(path).json() == {"status": "paid"}
+        receipt, = cards(client.get(f"/feed?session_id={session_id}").json())
+        assert receipt["chips"] == ["Shopee Food", "Paid with ShopeePay"]
+        assert receipt["eta_min"] == 17
+
+
+def test_guest_food_search_falls_back_without_device_location_and_rejects_invalid_coordinates(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        client.headers.pop("X-Zippy-Demo")
+        assert client.post("/visitor", json={"name": "Guest"}).is_success
+        response = client.post("/chat", json={"message": "Find restaurants near me", "location": {"lat": 91, "lng": 100}})
+        assert response.status_code == 422
+        assert not hasattr(simulator, "dish_searches")
+        card, = cards(say(client, "Find restaurants near me"))
+        assert card["location_source"] == "silom"
+        assert "lat" not in simulator.dish_searches[-1] and "lng" not in simulator.dish_searches[-1]
+
+
 def test_dinner_then_retry_and_walk(tmp_path):
     with demo(tmp_path) as (client, simulator):
         assert client.post("/demo/trigger", json={"moment": "dinner_tip"}).is_success
         dinner = cards(client.get("/feed").json())
         assert [card["kind"] for card in dinner] == ["meal", "places", "activity"]
         assert dinner[1]["places"][0]["protein_g"] == 45
+        assert dinner[1]["places"][0]["stock_image_url"] == "https://sim.example/s_easy_health.jpg"
+        assert dinner[1]["places"][0]["stock_image_credit"]["representative"] is True
+        assert dinner[1]["orderable"] is False
         say(client, "Yes, I'll walk")
         assert not any(name == "get_menu" for name, _ in simulator.calls)
         say(client, "Yes, book it")

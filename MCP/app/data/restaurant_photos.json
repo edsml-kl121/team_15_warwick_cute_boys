@@ -1,0 +1,130 @@
+{
+  "s_easy_health": {
+    "caption": "Chicken Caesar salad",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Caesar_salad_with_chicken_-_Cambridge,_MA.jpg",
+    "author": "Daderot",
+    "license": "CC0 1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "s_salad_factory": {
+    "caption": "Caesar salad with grilled chicken",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Caesar_Salad_%26_Grilled_Chicken_(30548011308).jpg",
+    "author": "Prayitno",
+    "license": "CC BY 2.0",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/"
+  },
+  "s_mk_restaurants": {
+    "caption": "Thai suki at an MK Restaurant in Japan",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Thai_Suki_of_MK_Restaurant.JPG",
+    "author": "Nissy-KITAQ",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "s_go_ang": {
+    "caption": "Go-Ang Kaomunkai Pratunam",
+    "representative": false,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Go-ang_Kaomunkai_Pratunam_(8).jpg",
+    "author": "กสิณธร ราชโอรส",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/"
+  },
+  "s_som_tam": {
+    "caption": "Bangkok-style green papaya salad",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Som_Tam_green_papaya_salad,_Bangkok,_Thailand.jpg",
+    "author": "Vyacheslav Argenberg",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "s_jok_prince": {
+    "caption": "Jok Prince in Bang Rak",
+    "representative": false,
+    "source_url": "https://commons.wikimedia.org/wiki/File:2017_Jok_Prince_01.jpg",
+    "author": "Chainwit.",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/"
+  },
+  "s_thipsamai_pad": {
+    "caption": "Thipsamai at Pratu Phi",
+    "representative": false,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Pad_Thai_Thipsamai_at_Pratu_Phi_(2019)_02.jpg",
+    "author": "Chainwit.",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "s_rung_rueang": {
+    "caption": "Thai wheat noodle soup with roast pork",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Bami_mu_daeng_kiao.JPG",
+    "author": "Takeaway",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "s_yayoi": {
+    "caption": "Japanese set meal with tonkatsu and chicken teriyaki",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Hana_Japanese_Restaurant_-_Stierch_03.jpg",
+    "author": "Missvain",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "s_massilia": {
+    "caption": "Neapolitan pizza",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Pizza_Napoletana_in_Pompei,_Italy.jpg",
+    "author": "Robot8A",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/"
+  },
+  "s_holey_artisan": {
+    "caption": "Holey Artisan Bakery in Suan Phlu",
+    "representative": false,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Holey_Artisan_Bakery_Cafe_Suanplu,_Bangkok_(2026)_-_IMG_02.jpg",
+    "author": "Chainwit.",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "s_baan_phadthai": {
+    "caption": "Baan Phadthai in Bangkok",
+    "representative": false,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Ban_Phat_Thai_-_2017-05-12_(001).jpg",
+    "author": "Iudexvivorum",
+    "license": "CC0 1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "s_prachak_pet": {
+    "caption": "Thai roast duck rice",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Khao_na_pet.JPG",
+    "author": "Takeaway",
+    "license": "CC BY-SA 3.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "s_thongsmith": {
+    "caption": "A bowl of boat noodles at ThongSmith",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Bowl_of_boat_noodles.jpg",
+    "author": "Emppowering",
+    "license": "CC0 1.0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "s_broccoli_revolution": {
+    "caption": "Plant-based rice bowl with tofu and vegetables",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Bali_vegan_bowl_with_tofu.jpg",
+    "author": "Carstenhag",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/"
+  },
+  "s_after_you": {
+    "caption": "Honey toast with ice cream",
+    "representative": true,
+    "source_url": "https://commons.wikimedia.org/wiki/File:Honey_toast_(24016954558).jpg",
+    "author": "NuCastiel",
+    "license": "CC BY 2.0",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/"
+  }
+}

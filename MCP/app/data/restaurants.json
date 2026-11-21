@@ -93,6 +93,18 @@
         "nutrition_source": "official",
         "nutrition_url": "https://easyhealth.asia/menu",
         "sodium_source": "estimated"
+      },
+      {
+        "name": "Roasted Pumpkin and Edamame Side",
+        "name_th": "ฟักทองอบกับถั่วแระญี่ปุ่น",
+        "price_thb": 89,
+        "price_source": "simulated",
+        "calories": 150,
+        "protein_g": 7,
+        "carbs_g": 22,
+        "fat_g": 4,
+        "sodium_mg": 210,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -182,6 +194,18 @@
         "sodium_mg": 1000,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Roasted Mushroom Soup",
+        "name_th": "ซุปเห็ดย่าง",
+        "price_thb": 105,
+        "price_source": "simulated",
+        "calories": 180,
+        "protein_g": 6,
+        "carbs_g": 17,
+        "fat_g": 10,
+        "sodium_mg": 520,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -265,6 +289,18 @@
         "nutrition_source": "estimated",
         "nutrition_url": "https://mkrestaurant.com/en/mk-menu/single-dish?p=1",
         "calories_source": "official"
+      },
+      {
+        "name": "Steamed Vegetable Dumplings",
+        "name_th": "เกี๊ยวผักนึ่ง",
+        "price_thb": 79,
+        "price_source": "simulated",
+        "calories": 180,
+        "protein_g": 6,
+        "carbs_g": 29,
+        "fat_g": 5,
+        "sodium_mg": 420,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -355,6 +391,18 @@
         "sodium_mg": 700,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Extra Hainanese Rice",
+        "name_th": "ข้าวมันเพิ่ม",
+        "price_thb": 25,
+        "price_source": "simulated",
+        "calories": 230,
+        "protein_g": 4,
+        "carbs_g": 43,
+        "fat_g": 5,
+        "sodium_mg": 220,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -444,6 +492,18 @@
         "sodium_mg": 5,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Grilled Chicken Wings",
+        "name_th": "ปีกไก่ย่าง",
+        "price_thb": 119,
+        "price_source": "simulated",
+        "calories": 290,
+        "protein_g": 23,
+        "carbs_g": 5,
+        "fat_g": 19,
+        "sodium_mg": 610,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -522,6 +582,18 @@
         "sodium_mg": 1000,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Extra Soft-Boiled Egg",
+        "name_th": "ไข่ลวกเพิ่ม",
+        "price_thb": 15,
+        "price_source": "simulated",
+        "calories": 75,
+        "protein_g": 6,
+        "carbs_g": 1,
+        "fat_g": 5,
+        "sodium_mg": 70,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -599,6 +671,18 @@
         "sodium_mg": 1100,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Fresh Orange Juice",
+        "name_th": "น้ำส้มคั้น",
+        "price_thb": 95,
+        "price_source": "simulated",
+        "calories": 155,
+        "protein_g": 2,
+        "carbs_g": 36,
+        "fat_g": 0,
+        "sodium_mg": 10,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -667,6 +751,18 @@
         "sodium_mg": 150,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Mixed Pork and Fish Balls",
+        "name_th": "ลูกชิ้นหมูและลูกชิ้นปลา",
+        "price_thb": 60,
+        "price_source": "simulated",
+        "calories": 175,
+        "protein_g": 17,
+        "carbs_g": 10,
+        "fat_g": 7,
+        "sodium_mg": 740,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -746,6 +842,18 @@
         "sodium_mg": 2500,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Edamame with Sea Salt",
+        "name_th": "ถั่วแระญี่ปุ่นโรยเกลือ",
+        "price_thb": 65,
+        "price_source": "simulated",
+        "calories": 125,
+        "protein_g": 11,
+        "carbs_g": 9,
+        "fat_g": 5,
+        "sodium_mg": 220,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -836,6 +944,18 @@
         "sodium_mg": 900,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Garlic Focaccia",
+        "name_th": "ฟอคคาเซียกระเทียม",
+        "price_thb": 145,
+        "price_source": "simulated",
+        "calories": 275,
+        "protein_g": 7,
+        "carbs_g": 38,
+        "fat_g": 10,
+        "sodium_mg": 480,
+        "nutrition_source": "estimated"
       }
     ]
   },
@@ -925,6 +1045,399 @@
         "sodium_mg": 700,
         "nutrition_source": "estimated",
         "nutrition_url": null
+      },
+      {
+        "name": "Butter Croissant",
+        "name_th": "ครัวซองต์เนยสด",
+        "price_thb": 95,
+        "price_source": "simulated",
+        "calories": 270,
+        "protein_g": 5,
+        "carbs_g": 31,
+        "fat_g": 14,
+        "sodium_mg": 260,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Baan Phadthai",
+    "branch": "Charoen Krung Soi 44",
+    "address": "21–23 Charoen Krung Soi 44, Bang Rak, Bangkok 10500",
+    "lat": 13.7207,
+    "lng": 100.5151,
+    "cuisine": "thai",
+    "rating": 4.4,
+    "source_urls": [
+      "https://www.baanphadthai.com/contact"
+    ],
+    "phone": "+16502013595",
+    "notes": "Bangkok location used for the simulator. Menu selection, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Tofu Pad Thai",
+        "name_th": "ผัดไทยเต้าหู้",
+        "price_thb": 165,
+        "price_source": "simulated",
+        "calories": 460,
+        "protein_g": 18,
+        "carbs_g": 56,
+        "fat_g": 18,
+        "sodium_mg": 710,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "River Prawn Pad Thai",
+        "name_th": "ผัดไทยกุ้งแม่น้ำ",
+        "price_thb": 280,
+        "price_source": "simulated",
+        "calories": 545,
+        "protein_g": 27,
+        "carbs_g": 65,
+        "fat_g": 20,
+        "sodium_mg": 960,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Crab Pad Thai",
+        "name_th": "ผัดไทยปู",
+        "price_thb": 295,
+        "price_source": "simulated",
+        "calories": 510,
+        "protein_g": 25,
+        "carbs_g": 66,
+        "fat_g": 17,
+        "sodium_mg": 930,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Green Mango and Peanut Salad",
+        "name_th": "ยำมะม่วงถั่วลิสง",
+        "price_thb": 125,
+        "price_source": "simulated",
+        "calories": 190,
+        "protein_g": 5,
+        "carbs_g": 30,
+        "fat_g": 6,
+        "sodium_mg": 450,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Coconut Ice Cream",
+        "name_th": "ไอศกรีมกะทิ",
+        "price_thb": 85,
+        "price_source": "simulated",
+        "calories": 205,
+        "protein_g": 3,
+        "carbs_g": 29,
+        "fat_g": 9,
+        "sodium_mg": 80,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Prachak Pet Yang",
+    "branch": "Charoen Krung",
+    "address": "1415 Charoen Krung Rd, Silom, Bang Rak, Bangkok 10500",
+    "lat": 13.7201,
+    "lng": 100.5154,
+    "cuisine": "thai_chinese",
+    "rating": 4.5,
+    "source_urls": [
+      "https://www.timeout.com/bangkok/restaurants/prachak-roasted-duck"
+    ],
+    "phone": "+16502013595",
+    "notes": "Bangkok location used for the simulator. Menu selection, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Roast Duck Rice",
+        "name_th": "ข้าวหน้าเป็ดย่าง",
+        "price_thb": 105,
+        "price_source": "simulated",
+        "calories": 455,
+        "protein_g": 24,
+        "carbs_g": 56,
+        "fat_g": 15,
+        "sodium_mg": 820,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Dry Egg Noodles with Roast Duck",
+        "name_th": "บะหมี่แห้งเป็ดย่าง",
+        "price_thb": 115,
+        "price_source": "simulated",
+        "calories": 440,
+        "protein_g": 23,
+        "carbs_g": 53,
+        "fat_g": 15,
+        "sodium_mg": 890,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Roast Duck and Crispy Pork Rice",
+        "name_th": "ข้าวหน้าเป็ดย่างหมูกรอบ",
+        "price_thb": 135,
+        "price_source": "simulated",
+        "calories": 560,
+        "protein_g": 28,
+        "carbs_g": 57,
+        "fat_g": 24,
+        "sodium_mg": 1100,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Prawn Wonton Soup",
+        "name_th": "เกี๊ยวกุ้งน้ำ",
+        "price_thb": 90,
+        "price_source": "simulated",
+        "calories": 240,
+        "protein_g": 15,
+        "carbs_g": 27,
+        "fat_g": 8,
+        "sodium_mg": 980,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Blanched Greens with Garlic",
+        "name_th": "ผักลวกกระเทียม",
+        "price_thb": 49,
+        "price_source": "simulated",
+        "calories": 85,
+        "protein_g": 3,
+        "carbs_g": 8,
+        "fat_g": 5,
+        "sodium_mg": 280,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "ThongSmith",
+    "branch": "centralwOrld",
+    "address": "centralwOrld, 999/9 Rama I Rd, Pathum Wan, Bangkok 10330",
+    "lat": 13.7466,
+    "lng": 100.5393,
+    "cuisine": "thai_noodles",
+    "rating": 4.5,
+    "source_urls": [
+      "https://www.wongnai.com/restaurants/435927EH-thongsmith-centralworld"
+    ],
+    "phone": "+16502013595",
+    "notes": "Bangkok location used for the simulator. Menu selection, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Braised Beef Boat Noodles",
+        "name_th": "ก๋วยเตี๋ยวเรือเนื้อตุ๋น",
+        "price_thb": 215,
+        "price_source": "simulated",
+        "calories": 450,
+        "protein_g": 29,
+        "carbs_g": 49,
+        "fat_g": 15,
+        "sodium_mg": 1250,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Sliced Pork Boat Noodles",
+        "name_th": "ก๋วยเตี๋ยวเรือหมูสด",
+        "price_thb": 165,
+        "price_source": "simulated",
+        "calories": 390,
+        "protein_g": 24,
+        "carbs_g": 47,
+        "fat_g": 11,
+        "sodium_mg": 1160,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Dry Rice Noodles with Beef Balls",
+        "name_th": "ก๋วยเตี๋ยวแห้งลูกชิ้นเนื้อ",
+        "price_thb": 175,
+        "price_source": "simulated",
+        "calories": 385,
+        "protein_g": 21,
+        "carbs_g": 50,
+        "fat_g": 11,
+        "sodium_mg": 980,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Blanched Morning Glory",
+        "name_th": "ผักบุ้งลวก",
+        "price_thb": 55,
+        "price_source": "simulated",
+        "calories": 60,
+        "protein_g": 3,
+        "carbs_g": 7,
+        "fat_g": 2,
+        "sodium_mg": 240,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Crispy Pork Rinds",
+        "name_th": "กากหมูเจียว",
+        "price_thb": 59,
+        "price_source": "simulated",
+        "calories": 195,
+        "protein_g": 10,
+        "carbs_g": 2,
+        "fat_g": 17,
+        "sodium_mg": 380,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "Broccoli Revolution",
+    "branch": "Sukhumvit 49",
+    "address": "899 Sukhumvit Rd, Khlong Tan Nuea, Watthana, Bangkok 10110",
+    "lat": 13.7298,
+    "lng": 100.5772,
+    "cuisine": "vegan",
+    "rating": 4.5,
+    "source_urls": [
+      "https://broccolirevolution.com/"
+    ],
+    "phone": "+16502013595",
+    "notes": "Bangkok location used for the simulator. Menu selection, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Crispy Tofu Riceberry Bowl",
+        "name_th": "ข้าวไรซ์เบอร์รี่เต้าหู้กรอบ",
+        "price_thb": 245,
+        "price_source": "simulated",
+        "calories": 480,
+        "protein_g": 22,
+        "carbs_g": 64,
+        "fat_g": 15,
+        "sodium_mg": 680,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Broccoli and Quinoa Burger",
+        "name_th": "เบอร์เกอร์บรอกโคลีควินัว",
+        "price_thb": 285,
+        "price_source": "simulated",
+        "calories": 520,
+        "protein_g": 19,
+        "carbs_g": 66,
+        "fat_g": 20,
+        "sodium_mg": 750,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Chickpea and Avocado Salad",
+        "name_th": "สลัดถั่วลูกไก่อะโวคาโด",
+        "price_thb": 235,
+        "price_source": "simulated",
+        "calories": 420,
+        "protein_g": 14,
+        "carbs_g": 40,
+        "fat_g": 23,
+        "sodium_mg": 470,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Mushroom Larb with Brown Rice",
+        "name_th": "ลาบเห็ดกับข้าวกล้อง",
+        "price_thb": 219,
+        "price_source": "simulated",
+        "calories": 380,
+        "protein_g": 13,
+        "carbs_g": 63,
+        "fat_g": 9,
+        "sodium_mg": 690,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Pumpkin and Coconut Soup",
+        "name_th": "ซุปฟักทองกะทิ",
+        "price_thb": 155,
+        "price_source": "simulated",
+        "calories": 240,
+        "protein_g": 5,
+        "carbs_g": 26,
+        "fat_g": 13,
+        "sodium_mg": 450,
+        "nutrition_source": "estimated"
+      }
+    ]
+  },
+  {
+    "name": "After You Dessert Cafe",
+    "branch": "Silom Complex",
+    "address": "Silom Complex, 2nd floor, 191 Silom Rd, Bang Rak, Bangkok 10500",
+    "lat": 13.7285,
+    "lng": 100.5348,
+    "cuisine": "dessert_cafe",
+    "rating": 4.5,
+    "source_urls": [
+      "https://www.silomcomplex.co.th/th/eat-eat-eat/after-you-dessert-cafe",
+      "https://www.afteryoudessertcafe.com/"
+    ],
+    "phone": "+16502013595",
+    "notes": "Bangkok location used for the simulator. Menu selection, prices, rating and nutrition are demo fixtures.",
+    "menu": [
+      {
+        "name": "Shibuya Honey Toast (Small)",
+        "name_th": "ชิบูย่าโทสต์ ไซซ์เล็ก",
+        "price_thb": 195,
+        "price_source": "simulated",
+        "calories": 530,
+        "protein_g": 9,
+        "carbs_g": 72,
+        "fat_g": 23,
+        "sodium_mg": 370,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Thai Tea Kakigori (Small)",
+        "name_th": "คากิโกริชาไทย ไซซ์เล็ก",
+        "price_thb": 189,
+        "price_source": "simulated",
+        "calories": 325,
+        "protein_g": 5,
+        "carbs_g": 57,
+        "fat_g": 9,
+        "sodium_mg": 155,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Mango Sticky Rice Kakigori (Small)",
+        "name_th": "คากิโกริข้าวเหนียวมะม่วง ไซซ์เล็ก",
+        "price_thb": 219,
+        "price_source": "simulated",
+        "calories": 385,
+        "protein_g": 5,
+        "carbs_g": 75,
+        "fat_g": 7,
+        "sodium_mg": 155,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Iced Black Coffee",
+        "name_th": "กาแฟดำเย็น",
+        "price_thb": 95,
+        "price_source": "simulated",
+        "calories": 15,
+        "protein_g": 1,
+        "carbs_g": 2,
+        "fat_g": 0,
+        "sodium_mg": 10,
+        "nutrition_source": "estimated"
+      },
+      {
+        "name": "Iced Hojicha Latte",
+        "name_th": "โฮจิฉะลาเต้เย็น",
+        "price_thb": 125,
+        "price_source": "simulated",
+        "calories": 185,
+        "protein_g": 6,
+        "carbs_g": 25,
+        "fat_g": 7,
+        "sodium_mg": 105,
+        "nutrition_source": "estimated"
       }
     ]
   }

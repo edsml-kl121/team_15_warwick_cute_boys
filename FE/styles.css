@@ -351,6 +351,10 @@ button:disabled { cursor: wait; opacity: .65; }
 .push-box .material-icons { font-size: 18px; }
 .push-hint { margin: 0; }
 .push-hint:empty { display: none; }
+.location-box:not([hidden]) { display: grid; gap: 6px; }
+.location-box .btn2 { min-height: 40px; font-size: 13px; }
+.location-box .material-icons { font-size: 18px; }
+.location-hint { margin: 0; }
 .demo-controls { font-size: 13px; color: #404945; }
 .demo-controls summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 .demo-controls[open] { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -381,6 +385,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .result-list li:first-child { border-top: 0; }
 .result-list li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 14px; }
 .result-list strong { font-size: 13px; color: #3a6758; white-space: nowrap; }
+.result-credit { align-self: flex-start; margin-top: 2px; color: #526558; font-size: 11px; }
+.result-list .food-order { align-self: flex-start; margin-top: 5px; min-height: 32px; padding: 4px 12px; font-size: 12px; }
 .card-note { margin: 0; }
 
 /* Consent sheet */

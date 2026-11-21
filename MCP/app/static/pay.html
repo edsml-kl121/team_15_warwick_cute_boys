@@ -22,6 +22,10 @@
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .row:last-child { border-bottom: 0; }
   .row .k { color: var(--muted); }
+  .checkout-item { align-items: center; }
+  .checkout-item-label { display: flex; align-items: center; min-width: 0; gap: 10px; }
+  .checkout-item-photo { width: 48px; height: 48px; flex: none; object-fit: contain; border-radius: 6px; background: var(--bg); }
+  .checkout-item-price { flex: none; }
   .row.total .v { color: var(--brand); font-weight: 600; }
   .method { display: flex; align-items: center; gap: 8px; }
   .sp { width: 22px; height: 22px; border-radius: 6px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
@@ -122,7 +126,16 @@ async function render() {
   const merchantName = o.kind === "food" ? o.shop_name
     : mallShops.length === 1 ? `${mallShops[0]} · Shopee Mall` : "Shopee Mall";
   const avatar = shop ? el("img", { class: "avatar", src: shop.image_url, alt: "" }) : el("div", { class: "avatar" });
-  const itemRows = o.items.map((i) => el("div", { class: "row" }, el("span", {}, `${i.name} ×${i.qty}`), el("span", {}, `฿${money(i.unit_price_thb * i.qty)}`)));
+  const itemRows = o.items.map((item) => {
+    const label = el("span", { class: "checkout-item-label" }, `${item.name} ×${item.qty}`);
+    if (item.image_url) {
+      const photo = el("img", { class: "checkout-item-photo", src: item.image_url, alt: "", width: 48, height: 48 });
+      photo.addEventListener("error", () => photo.remove(), { once: true });
+      label.prepend(photo);
+    }
+    return el("div", { class: "row checkout-item" }, label,
+      el("span", { class: "checkout-item-price" }, `฿${money(item.unit_price_thb * item.qty)}`));
+  });
 
   app.replaceChildren(
     el("div", { class: "merchant" }, avatar, el("div", { class: "name" }, merchantName),

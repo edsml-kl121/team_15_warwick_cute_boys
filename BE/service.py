@@ -14,6 +14,9 @@ MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19
 TITLES = {"morning_sleep": "Sleep insight", "dinner_tip": "Dinner tip", "daily_summary": "Daily summary",
           "weekly_recap": "Your week"}
 RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
+FOOD_SEARCH = re.compile(
+    r"\b(dinner|lunch|restaurants?|nearby|near me|where to eat|shopee food|food delivery|order (?:some )?food)\b",
+)
 
 
 class Zippy:
@@ -107,7 +110,8 @@ class Zippy:
                 "totals": self.food_log(date)["totals"],
                 "upcoming": ([{"at": "18:15", "message": "Dinner idea"}] if self.store.demo else []) + [
                     {"at": order["arrival_date"], "message": "Shopee Mall eye mask delivery"}
-                    for order in self.state["orders"].values() if order["status"] == "paid"
+                    for order in self.state["orders"].values()
+                    if order["status"] == "paid" and order.get("fulfillment", "mall") == "mall"
                 ] + [{"at": item["at"][-5:], "message": item["message"]}
                      for item in self.state["reminders"].values() if item["status"] == "scheduled"]}
 
@@ -156,7 +160,7 @@ class Zippy:
                     session["pending"] = "walk"
                     nearby = "I found one place nearby." if len(places) == 1 else f"I found {len(session['places'])} places. {places[0]['name']} has the most protein."
                     items.extend([
-                        {"text": nearby, "card": {"kind": "places", "places": session["places"]}},
+                        {"text": nearby, "card": self.places_card(session_id)},
                         {"card": {"kind": "activity", **today["activity"]}},
                         {"text": "Walk to dinner to get some movement in?", "quick_replies": ["Yes, I'll walk", "Not now"]},
                     ])
@@ -199,9 +203,20 @@ class Zippy:
         return {"kind": "product_compare", "products": products, "best_item_id": products[0]["item_id"],
                 "more": {"count": max(0, len(products) - 2), "price_range": [min(prices), max(prices)]}}
 
-    async def find_places(self, session_id, dish, calories=None, protein_g=None):
-        """Find nearby Shopee Food places for a dish and remember the top three for booking."""
-        results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
+    def places_card(self, session_id, location=None):
+        return {
+            "kind": "places",
+            "places": self.session(session_id)["places"],
+            "orderable": not self.store.demo,
+            "location_source": "current" if location and not self.store.demo else "silom",
+        }
+
+    async def find_places(self, session_id, dish, calories=None, protein_g=None, *, location=None):
+        """Find nearby Shopee Food places for a dish and remember the top three for booking or delivery."""
+        coordinates = {} if self.store.demo else (location or {})
+        results = await self.shopee.call(
+            "find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35, **coordinates,
+        )
         by_shop = {}
         for result in results:
             place = result.get("restaurant", result)
@@ -210,8 +225,10 @@ class Zippy:
             if protein is not None:
                 by_shop.setdefault(place["shop_id"], {
                     "shop_id": place["shop_id"], "name": place["name"], "dish": item["name"],
+                    "item_id": item.get("item_id"),
                     "protein_g": protein, "price_thb": item["price_thb"], "distance_km": place["distance_km"],
                     **({"stock_image_url": place["image_url"]} if place.get("image_url") else {}),
+                    **({"stock_image_credit": place["image_credit"]} if place.get("image_credit") else {}),
                 })
         places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
         self.session(session_id)["places"] = [
@@ -219,8 +236,10 @@ class Zippy:
         ]
         return places
 
-    async def chat(self, session_id, message):
+    async def chat(self, session_id, message, *, location=None):
         session = self.session(session_id)
+        if self.store.demo:
+            location = None
         answer = message.casefold().strip().replace("’", "'")
         pending = session["pending"]
         if answer == "not now":
@@ -254,8 +273,23 @@ class Zippy:
             for event in self.recap_answer(answer):
                 yield event
         elif self.coach:
-            async for event in self.coach.stream(self, session_id, message, session["history"]):
+            async for event in self.coach.stream(self, session_id, message, session["history"], location=location):
                 yield event
+        elif not self.store.demo and FOOD_SEARCH.search(answer):
+            today = self.today()
+            dinner = pick_meal(
+                self.state.get("persona"), max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"]),
+                today["goals"]["kcal"] - today["totals"]["kcal"], DINNER,
+            )
+            yield {"type": "tool", "name": "find_similar_dishes"}
+            await self.find_places(session_id, dinner["dish"], dinner["kcal"], dinner["protein_g"], location=location)
+            card = self.places_card(session_id, location)
+            if card["places"]:
+                yield {"type": "delta", "text": f"Here are nearby places for {dinner['dish'].lower()}."}
+                yield {"type": "card", "card": card}
+            else:
+                area = "your location" if location else "Silom, Bangkok"
+                yield {"type": "delta", "text": f"I couldn't find a matching dish near {area}."}
         elif "sleep" in answer:
             yield {"type": "delta", "text": "Here's last night, from the moment you fell asleep."}
             yield {"type": "card", "card": self.sleep_card()}
@@ -263,7 +297,7 @@ class Zippy:
         elif any(word in answer for word in ("step", "walk", "activity")):
             yield {"type": "delta", "text": "Here's your activity so far today."}
             yield {"type": "card", "card": {"kind": "activity", **self.today()["activity"]}}
-        elif not self.store.demo and any(word in answer for word in ("dinner", "recommend", "suggest")):
+        elif not self.store.demo and any(word in answer for word in ("recommend", "suggest")):
             today = self.today()
             profile = self.state["profile"]
             protein_left = max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"])
@@ -312,21 +346,36 @@ class Zippy:
         yield {"type": "delta", "text": f"Your go-to orders with the most protein per calorie:\n\n{lines}"}
         yield {"type": "quick_replies", "options": ["Plan tomorrow's meals", "Not now"]}
 
-    async def buy(self, session_id, item_id):
+    async def buy(self, session_id, item_id, *, kind="mall", location=None):
         async with self.mutation:
-            product = next((item for item in self.session(session_id)["products"] if item["item_id"] == item_id), None)
-            if product is None:
-                raise ValueError("Choose a product from your comparison first.")
-            order = await self.shopee.call("place_mall_order", items=[{"product_id": item_id, "qty": 1}])
-            arrival = order.get("arrival_date")
-            if not arrival and order.get("eta_days") is not None:
-                arrival = str(date.fromisoformat(self.state["date"]) + timedelta(days=order["eta_days"]))
-            order = {"order_id": order.get("order_id") or order["id"], "item": product,
-                     "shipping_thb": order["shipping_thb"], "total_thb": order["total_thb"],
-                     "arrival_date": arrival, "address": self.state["profile"]["preferences"]["home"]}
-            self.state["orders"][order["order_id"]] = {**order, "session_id": session_id, "status": "unpaid"}
+            if kind == "food":
+                if self.store.demo:
+                    raise ValueError("Use table booking in the Ploy demo.")
+                place = next((row for row in self.session(session_id)["places"] if row.get("item_id") == item_id), None)
+                if place is None:
+                    raise ValueError("Choose a dish from your current Shopee Food suggestions.")
+                order = await self.shopee.call(
+                    "place_food_order", items=[{"item_id": item_id, "qty": 1}], **(location or {}),
+                )
+                item = {"item_id": item_id, "name": place["dish"], "shop": place["name"],
+                        "price_thb": order["subtotal_thb"]}
+                delivery = {"shipping_thb": order["delivery_fee_thb"], "eta_min": order["eta_min"],
+                            "delivery_area": "Current location" if location else "Silom, Bangkok"}
+            else:
+                item = next((row for row in self.session(session_id)["products"] if row["item_id"] == item_id), None)
+                if item is None:
+                    raise ValueError("Choose a product from your comparison first.")
+                order = await self.shopee.call("place_mall_order", items=[{"product_id": item_id, "qty": 1}])
+                arrival = order.get("arrival_date")
+                if not arrival and order.get("eta_days") is not None:
+                    arrival = str(date.fromisoformat(self.state["date"]) + timedelta(days=order["eta_days"]))
+                delivery = {"shipping_thb": order["shipping_thb"], "arrival_date": arrival,
+                            "address": self.state["profile"]["preferences"]["home"]}
+            summary = {"order_id": order.get("order_id") or order["id"], "fulfillment": kind,
+                       "item": item, "total_thb": order["total_thb"], **delivery}
+            self.state["orders"][summary["order_id"]] = {**summary, "session_id": session_id, "status": "unpaid"}
             self.store.save()
-            return {"kind": "order_summary", **order}
+            return {"kind": "order_summary", **summary}
 
     def owned_order(self, session_id, order_id):
         order = self.state["orders"].get(order_id)
@@ -357,14 +406,21 @@ class Zippy:
                     if result["status"] in {"unpaid", "pending_payment"}:
                         raise
             remote_status = result["status"]
-            order["status"] = ("paid" if remote_status in {"paid", "confirmed", "packed", "shipped", "delivered"}
-                               or "paid_at" in result else "cancelled" if remote_status in {"cancelled", "canceled"} else "unpaid")
+            paid_states = {"paid", "confirmed", "packed", "shipped", "preparing", "rider_assigned", "picked_up", "delivered"}
+            order["status"] = ("paid" if remote_status in paid_states or result.get("paid_at") is not None
+                               else "cancelled" if remote_status in {"cancelled", "canceled"} else "unpaid")
             if order["status"] == "paid":
-                reminder = self.remind(session_id, "22:30", "Wear your eye mask")
-                self.emit(session_id, {"text": "ShopeePay · approved with your PIN",
-                    "card": {"kind": "payment_status", "paid": True, "item": order["item"], "total_thb": order["total_thb"],
-                             "arrival_date": order["arrival_date"], "chips": ["Shopee Mall", "Paid with ShopeePay"]}},
-                    {"text": "I'll remind you to wear it at 10:30 tonight.", "card": reminder})
+                food = order.get("fulfillment") == "food"
+                receipt = {
+                    "kind": "payment_status", "paid": True, "item": order["item"], "total_thb": order["total_thb"],
+                    "arrival_date": order.get("arrival_date"), "eta_min": order.get("eta_min"),
+                    "chips": ["Shopee Food" if food else "Shopee Mall", "Paid with ShopeePay"],
+                }
+                items = [{"text": "ShopeePay · approved with your PIN", "card": receipt}]
+                if not food:
+                    reminder = self.remind(session_id, "22:30", "Wear your eye mask")
+                    items.append({"text": "I'll remind you to wear it at 10:30 tonight.", "card": reminder})
+                self.emit(session_id, *items)
             else:
                 self.store.save()
             return {"status": order["status"]}

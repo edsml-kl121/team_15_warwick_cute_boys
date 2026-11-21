@@ -101,7 +101,8 @@ def place_food_order(
 
 @mcp.tool()
 def search_products(query: str = "", category: str = "") -> list[dict]:
-    """Search Shopee Mall products (categories: sleep, recovery). E.g. 'eye mask', 'curtain'.
+    """Search Shopee Mall products (categories: sleep, recovery).
+    Try 'eye mask', 'gel eye pads', 'white noise', or 'yoga mat'.
     Several shops sell similar items (e.g. 4 eye masks, 59-390 THB): compare shop, price
     and rating, and let the user pick."""
     return store.search_products(query, category)

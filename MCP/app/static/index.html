@@ -41,6 +41,13 @@
   .empty { text-align: center; padding: 64px 32px; color: var(--muted); }
   .empty .ico { font-size: 48px; opacity: .4; }
   .sim { text-align: center; font-size: 11px; color: #a37b00; background: #fff8e1; padding: 3px; }
+  .restaurants { padding: 14px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .restaurant { background: #fff; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .restaurant img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--line); }
+  .restaurant-info { padding: 9px 10px 10px; }
+  .restaurant h2 { font-size: 14px; margin: 0 0 4px; }
+  .restaurant p { margin: 0 0 3px; color: #555; font-size: 12px; }
+  .restaurant-credit { color: #555; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -51,11 +58,11 @@
   <div id="orders"></div>
 </div>
 <script>
-const TABS = [["all", "All"], ["topay", "To Pay"], ["active", "In Progress"], ["done", "Completed"]];
+const TABS = [["all", "All"], ["topay", "To Pay"], ["active", "In Progress"], ["done", "Completed"], ["restaurants", "Restaurants"]];
 const MESSAGES = { confirmed: "Restaurant confirmed your order", preparing: "Restaurant is preparing your food",
   rider_assigned: "A driver is heading to the restaurant", picked_up: "Driver picked up your order and is on the way",
   packed: "Seller packed your parcel", shipped: "Parcel is on the way", delivered: "Order delivered" };
-let tab = "all", images = {};
+let tab = "all", images = {}, restaurants;
 
 const money = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const label = (s) => s.replace(/_/g, " ");
@@ -74,7 +81,16 @@ function bucket(o) {
 function drawTabs() {
   document.getElementById("tabs").replaceChildren(...TABS.map(([key, name]) => {
     const b = el("button", { type: "button", class: key === tab ? "on" : "" }, name);
-    b.onclick = () => { tab = key; refresh(); };
+    b.setAttribute("aria-pressed", key === tab);
+    b.onclick = () => {
+      tab = key;
+      if (tab === "restaurants") {
+        drawTabs();
+        drawRestaurants();
+      } else {
+        refresh();
+      }
+    };
     return b;
   }));
 }
@@ -98,25 +114,54 @@ function card(o) {
 }
 
 async function loadImages() {
-  const [shops, products] = await Promise.all([fetch("/api/restaurants?max_km=50").then((r) => r.json()), fetch("/api/products").then((r) => r.json())]);
-  shops.forEach((s) => (images[s.shop_id] = s.image_url));
-  products.forEach((p) => (images[p.product_id] = p.image_url));
+  await Promise.allSettled([
+    fetch("/api/restaurants?max_km=50").then((r) => r.json()).then((shops) => {
+      restaurants = shops;
+      shops.forEach((s) => (images[s.shop_id] = s.image_url));
+      if (tab === "restaurants") drawRestaurants();
+    }),
+    fetch("/api/products").then((r) => r.json()).then((products) => {
+      products.forEach((p) => (images[p.product_id] = p.image_url));
+    }),
+  ]);
+}
+
+function drawRestaurants() {
+  const directory = document.getElementById("orders");
+  if (!restaurants?.length) {
+    directory.replaceChildren(el("div", { class: "empty" }, "No restaurants available."));
+    return;
+  }
+  const cards = restaurants.map((shop) => {
+    const credit = shop.image_credit;
+    const label = credit.representative ? "Representative photo" : "Photo credit";
+    const attribution = el("a", { class: "restaurant-credit", href: credit.source_url,
+      target: "_blank", rel: "noopener noreferrer",
+      title: `${credit.author} · ${credit.license} · Resized and cropped for display` }, label);
+    return el("article", { class: "restaurant" }, el("img", {
+      src: shop.image_url, alt: credit.caption, loading: "lazy",
+    }), el("div", { class: "restaurant-info" },
+      el("h2", {}, shop.name), el("p", {}, shop.branch), attribution));
+  });
+  directory.replaceChildren(el("section", { class: "restaurants", "aria-label": "Restaurants" }, cards));
 }
 
 async function refresh() {
-  drawTabs();
+  if (tab !== "restaurants") drawTabs();
   try {
     const [orders, wallet] = await Promise.all([fetch("/api/orders").then((r) => r.json()), fetch("/api/wallet").then((r) => r.json())]);
     document.getElementById("bal").textContent = `฿${money(wallet.balance_thb)}`;
+    if (tab === "restaurants") return;
     const shown = orders.filter((o) => tab === "all" || bucket(o) === tab);
     document.getElementById("orders").replaceChildren(...(shown.length ? shown.map(card)
       : [el("div", { class: "empty" }, el("div", { class: "ico" }, "🧾"), "No orders yet. Ask your agent to order something.")]));
   } catch (e) {
     document.getElementById("bal").textContent = "offline";
+    if (tab === "restaurants") return;
     document.getElementById("orders").replaceChildren(el("div", { class: "empty" }, "Can't reach the simulator. Start it and open http://localhost:8090"));
   }
 }
-loadImages().catch(() => {}).finally(refresh);
+loadImages().finally(refresh);
 setInterval(refresh, 2000);
 </script>
 </body>

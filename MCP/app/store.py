@@ -125,6 +125,7 @@ class Store:
         self.shops = {
             r["shop_id"]: {
                 **{k: v for k, v in r.items() if k != "menu"},
+                "image_url": f"{PUBLIC_BASE_URL}/static/restaurants/{r['shop_id']}.jpg",
                 **({"phone": demo_phone} if demo_phone else {}),
             }
             for r in RESTAURANTS
@@ -248,7 +249,7 @@ class Store:
                     "unit_price_thb": src["price_thb"],
                     "nutrition": src.get("nutrition"),
                     "shop_id": src.get("shop_id"),
-                    **({"shop": src["shop"]} if kind == "mall" else {}),
+                    **({"shop": src["shop"], "image_url": src["image_url"]} if kind == "mall" else {}),
                 }
             )
         return lines

@@ -12,6 +12,7 @@
   const voiceStatus = voiceDock.querySelector('.voice-status');
   const history = document.querySelector('.history-modal');
   const historyList = history.querySelector('.history-list');
+  const locationHint = history.querySelector('.location-hint');
   const order = document.querySelector('.order-dialog');
   const photo = document.querySelector('#meal-photo');
   const scan = document.querySelector('.scan-dialog');
@@ -39,6 +40,7 @@
   let pendingOrder;
   let checkingUpdates = false;
   let previewUrl;
+  let useCurrentLocation = false;
 
   const pages = window.createZippyPages({
     service,
@@ -261,10 +263,35 @@
       const list = node('ul', 'result-list');
       for (const item of data.items) {
         const entry = node('li');
-        const thumb = remoteImage(item.imageUrl, 'list-thumb');
-        if (thumb) entry.append(thumb);
+        const photo = remoteImage(item.imageUrl, 'list-thumb');
+        if (photo) {
+          photo.alt = item.imageCredit?.caption || '';
+          entry.append(photo);
+        }
         const text = node('div');
         text.append(node('b', '', item.title), node('span', 'mut', item.detail));
+        if (photo) {
+          const credit = item.imageCredit;
+          const sourceUrl = credit?.source_url && safeURL(credit.source_url);
+          if (sourceUrl) {
+            const source = node('a', 'result-credit',
+              credit.representative ? 'Representative photo' : 'Photo credit');
+            source.href = sourceUrl.href;
+            source.target = '_blank';
+            source.rel = 'noopener noreferrer';
+            source.title = [credit.author, credit.license, 'Resized and cropped for display'].filter(Boolean).join(' · ');
+            text.append(source);
+            photo.addEventListener('error', () => source.remove(), { once: true });
+          }
+        }
+        if (typeof item.orderItemId === 'string' && item.orderItemId) {
+          const button = node('button', 'sbtn food-order', 'Order delivery');
+          button.type = 'button';
+          button.dataset.action = 'order-food';
+          button.dataset.itemId = item.orderItemId;
+          button.setAttribute('aria-label', `Order delivery from ${item.title}`);
+          text.append(button);
+        }
         entry.append(text);
         if (item.value) entry.append(node('strong', '', item.value));
         list.append(entry);
@@ -411,10 +438,11 @@
     delete message.error;
     if (thread === active) renderMessages(true);
     try {
+      const restaurantLocation = await getRestaurantLocation();
       await service.chat(thread.id, message.text, event => {
         applyReply(reply, event);
         if (thread === active) renderMessages();
-      });
+      }, restaurantLocation);
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
       thread.messages.push(reply);
       if (!thread.connected) push.sync(thread.id);
@@ -503,12 +531,43 @@
     return null;
   }
 
-  async function reviewOrder(productId, control) {
+  async function getRestaurantLocation() {
+    if (!useCurrentLocation) return null;
+    const position = await service.currentLocation();
+    if (!useCurrentLocation) return null;
+    if (!position) showFeedback('Location unavailable. Searching near Silom, Bangkok.');
+    return position;
+  }
+
+  async function toggleLocation(control) {
+    if (useCurrentLocation) {
+      useCurrentLocation = false;
+      control.setAttribute('aria-pressed', 'false');
+      locationHint.textContent = 'Restaurant searches use Silom, Bangkok.';
+      return;
+    }
+    control.disabled = true;
+    try {
+      useCurrentLocation = Boolean(await service.currentLocation());
+      control.setAttribute('aria-pressed', String(useCurrentLocation));
+      locationHint.textContent = useCurrentLocation
+        ? 'Location is on for this visit. Ask Zippy to find food nearby.'
+        : 'Location unavailable. Restaurant searches use Silom, Bangkok.';
+    } finally {
+      control.disabled = false;
+    }
+  }
+
+  async function reviewOrder(itemId, control, kind = 'mall') {
     if (pendingOrder) return showFeedback('There is already a ShopeePay checkout in progress.');
     const threadId = active.id;
     control.disabled = true;
     try {
-      const quote = await service.json('actions/buy', { item_id: productId, session_id: threadId });
+      const restaurantLocation = kind === 'food' ? await getRestaurantLocation() : null;
+      const body = { item_id: itemId, session_id: threadId };
+      if (kind === 'food') body.kind = kind;
+      if (restaurantLocation) body.location = restaurantLocation;
+      const quote = await service.json('actions/buy', body);
       if (!quote.order_id || !quote.item?.name || !Number.isFinite(quote.total_thb)) throw new Error('The backend didn’t return a complete order.');
       if (active.id !== threadId || order.open) {
         await service.json('actions/cancel', { order_id: quote.order_id, session_id: threadId });
@@ -516,12 +575,14 @@
       }
       reviewedOrder = { id: quote.order_id, threadId };
       const quoteCard = createCard({
-        title: quote.item.name, source: 'shopee', description: quote.item.shop,
+        title: quote.item.name, source: 'shopee', sourceLabel: kind === 'food' ? 'Shopee Food' : 'Shopee Mall',
+        description: quote.item.shop, imageUrl: quote.item.image_url,
         rows: [
           ['Item', Number.isFinite(quote.item.price_thb) ? `${quote.item.price_thb} THB` : null],
-          ['Shipping', Number.isFinite(quote.shipping_thb) ? `${quote.shipping_thb} THB` : null],
+          [kind === 'food' ? 'Delivery fee' : 'Shipping', Number.isFinite(quote.shipping_thb) ? `${quote.shipping_thb} THB` : null],
           ['Total', `${quote.total_thb} THB`],
-          ['Delivery', quote.arrival_date],
+          ['Delivery', Number.isFinite(quote.eta_min) ? `${quote.eta_min} min` : quote.arrival_date],
+          ['Delivery area', quote.delivery_area],
           ['Address', quote.address],
         ].map(([label, value]) => ({ label, value })),
       });
@@ -752,6 +813,8 @@
       if (message) requestReply(active, message);
     },
     quote: control => reviewOrder(control.dataset.productId, control),
+    'order-food': control => reviewOrder(control.dataset.itemId, control, 'food'),
+    'toggle-location': toggleLocation,
     checkout,
     demo: triggerDemo,
     back: control => goBack(control.getAttribute('href')),
@@ -915,6 +978,7 @@
   onboarding.addEventListener('cancel', event => event.preventDefault());
   onboarding.querySelector('.onboarding-retry').addEventListener('click', start);
   history.querySelector('.demo-controls').hidden = !service.demo;
+  history.querySelector('.location-box').hidden = service.demo;
   history.querySelector('.demo-entry').hidden = service.demo;
   document.querySelectorAll('.demo-exit').forEach(link => { link.hidden = !service.demo; });
   history.querySelector('.guest-exit').hidden = service.demo;

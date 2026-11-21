@@ -229,7 +229,7 @@ class AgentsCoach:
     def __init__(self, prompts):
         self.prompts = prompts
 
-    def tools(self, service, session_id, cards):
+    def tools(self, service, session_id, cards, *, location=None):
         from agents import function_tool
 
         @function_tool
@@ -281,15 +281,15 @@ class AgentsCoach:
         @function_tool
         async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
             """Find Shopee Food places near the visitor that serve this dish and display them.
-            Only these places can be booked. Use the returned shop_id with book_table_by_phone.
+            The app handles the search location and delivery checkout. Use shop_id for bookings.
 
             Args:
                 dish: A concrete dish, e.g. "grilled chicken salad".
                 protein_g: Optional protein target in grams; also surfaces similar dishes when no name matches.
                 calories: Optional calorie target for the dish.
             """
-            await service.find_places(session_id, dish, calories, protein_g)
-            card = {"kind": "places", "places": service.session(session_id)["places"]}
+            await service.find_places(session_id, dish, calories, protein_g, location=location)
+            card = service.places_card(session_id, location)
             if card["places"]:
                 cards.put_nowait(card)
             return card
@@ -321,7 +321,7 @@ class AgentsCoach:
         reminder = {"role": "developer", "content": self.prompts.get("coach.turn_reminder")}
         return [*history[-12:], *context, now, reminder, {"role": "user", "content": message}]
 
-    async def stream(self, service, session_id, message, history):
+    async def stream(self, service, session_id, message, history, *, location=None):
         from agents import Agent, Runner
         from agents.model_settings import ModelSettings
         from openai.types.shared import Reasoning
@@ -330,7 +330,7 @@ class AgentsCoach:
         agent = Agent(name="Zippy", instructions="\n".join(
             self.prompts.get(key) for key in ("coach.shared", "coach.chat_style")
         ), model_settings=ModelSettings(reasoning=Reasoning(effort="none")),
-            tools=self.tools(service, session_id, cards))
+            tools=self.tools(service, session_id, cards, location=location))
         run = Runner.run_streamed(agent, self.input(service, session_id, message, history), max_turns=4)
         try:
             async for event in run.stream_events():

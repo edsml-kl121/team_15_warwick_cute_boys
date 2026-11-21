@@ -27,6 +27,28 @@ after payment), `PUBLIC_BASE_URL` (for `approve_url`), `DELIVERY_WEBHOOK_URL` (P
 
 State is in memory and resets on restart.
 
+Use the **Restaurants** tab on the dashboard to preview the catalog photos. The
+restaurant search, menu, and dish-match responses include the same self-hosted
+`image_url` and `image_credit`. Credits, source links, and licenses are recorded
+in [restaurant_photos.json](app/data/restaurant_photos.json). Images were resized
+for the demo and are cropped in the UI. Representative dish photos are labeled.
+
+### Demo catalog
+
+Shopee Food has 16 Bangkok restaurants and 96 menu entries. Items tagged
+`price_source=simulated` have fixture prices and estimated nutrition. All
+restaurant listings use the team demo phone by default. Try searching for
+`boat noodles`, `crispy tofu riceberry bowl` or `honey toast`.
+
+Shopee Mall has 15 sleep and recovery products. Try `gel eye pads`,
+`white noise`, `yoga mat` or `resistance band`. The six new products have
+original, AI-generated studio thumbnails in [app/static/products](app/static/products).
+The prompts used a warm off-white background, a centered unbranded product,
+soft daylight and no text for each of the eye pads, neck pillow, sound machine,
+yoga mat, resistance bands and steel bottle.
+
+Mall order lines carry the product thumbnail to the ShopeePay PIN screen.
+
 From the repository root, `docker compose up --build mcp` serves the UI at
 `http://localhost:8001/` and MCP at `http://localhost:8001/mcp`.
 

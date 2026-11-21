@@ -12,10 +12,17 @@ First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Su
 
 ## Chat and shopping
 
-1. Accept `POST /chat` with `{session_id, message}`. The browser generates a conversation ID and the guest cookie scopes it to its owner. Return `application/x-ndjson` and finish with a `done` or `error` event. On return, `GET /sessions` lists conversations and `GET /sessions/{id}` returns ordered chat turns, cards and feed events with `last_feed_id` for polling.
+1. Accept `POST /chat` with `{session_id, message, location?}`. The browser generates a conversation ID and the guest cookie scopes it to its owner. Return `application/x-ndjson` and finish with a `done` or `error` event. On return, `GET /sessions` lists conversations and `GET /sessions/{id}` returns ordered chat turns, cards and feed events with `last_feed_id` for polling.
 2. Send `delta` events for text, `card` events for results, and `quick_replies` events for tap-to-send suggestions. Use tool data from the current session. For empty searches, send a factual text response and omit the card.
-3. Accept `POST /actions/buy` with `{session_id, item_id}` after the user chooses a product. Return the `order_summary`, including `order_id`, `item` (`name`, `shop`, `price_thb`), `shipping_thb`, `total_thb`, and optional `arrival_date` and `address`. Accept `POST /actions/cancel` with `{session_id, order_id}` when the user leaves the review without opening checkout.
+3. Accept `POST /actions/buy` with `{session_id, item_id}` after the user chooses a Mall product, or with `kind: "food"` and optional `location` after they choose **Order delivery** on a guest-chat listing. Return an unpaid `order_summary` with `order_id`, `item`, `shipping_thb`, `total_thb` and fulfillment details. Mall returns `arrival_date` and `address`. Food returns `eta_min` and `delivery_area`. Accept `POST /actions/cancel` with `{session_id, order_id}` when the user leaves the review without opening checkout.
 4. Accept `POST /actions/pay` with `{session_id, order_id}` when the user taps **Continue to ShopeePay**. Return `approve_url` for the hosted PIN page. The browser saves the pending order and opens that page in the same tab. After PIN approval, **Back to Zippy** returns to the configured frontend, preserving demo mode. Zippy polls `GET /shopee-orders/{order_id}?session_id=…` on return and reports payment after provider verification. Publish the receipt and any reminder to `GET /feed?session_id=…&after=…` with increasing IDs so they appear once.
+
+In guest chat, **Use my location** in the menu asks the browser for permission.
+While enabled in that tab, requests can send `location: {lat, lng}` rounded to
+three decimal places. The backend uses it for Shopee Food lookups and delivery
+estimates without saving coordinates in the profile or chat history. With no
+position, searches use Silom. Ploy's scripted demo and background dinner tips
+use the fixture location.
 
 ## Reference fixtures
 
@@ -54,6 +61,11 @@ The reference order is 199 THB plus 30 THB shipping, totaling 229 THB. An exampl
 | `places` | `places: [{ "name": "Salad Factory · Silom", "dish": "Grilled chicken Caesar", "price_thb": 220, "protein_g": 35 }]` |
 | `activity` | `steps: 2140`, `steps_goal_pct: 27`, `active_minutes: 3` |
 | `daily_summary` | `goals: [{ "key": "protein_g", "value": 92, "goal": 90, "met": true }]` |
+
+Restaurant entries can include a custom `image_url` or a catalog `stock_image_url`.
+The catalog image's `stock_image_credit` contains its caption, source, author,
+and license. The places card links to that credit when it displays the catalog image.
+An `orderable: true` places card offers delivery for listings with `item_id`.
 
 ## Transcription and meal photos
 
