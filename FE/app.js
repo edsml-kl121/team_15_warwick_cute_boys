@@ -37,6 +37,12 @@
   let voiceState = 'idle';
   let sendingVoice = false;
   let voiceText = '';
+  // Voice is a conversation: after Zippy answers aloud the mic opens again, until silence, ✕ or typing.
+  let conversing = false;
+  // Each spoken reply gets a turn; interrupting moves on, so the old reply never speaks again.
+  let replyTurn = 0;
+  // The live Realtime conversation ({ session, thread }) while one is open.
+  let realtime = null;
   let feedbackTimer;
   let reviewedOrder;
   let pendingOrder;
@@ -78,6 +84,8 @@
       transcript.scrollTop = transcript.scrollHeight;
     },
   });
+  // Replies to spoken messages are read aloud; typed messages stay silent.
+  const speaker = window.createZippySpeaker();
 
   function newThread() {
     return { id: crypto.randomUUID?.() || Date.now().toString(36), draft: '', messages: [], loaded: true };
@@ -114,7 +122,15 @@
   }
 
   function setMode(next, restoreFocus = false) {
-    if (mode === 'voice' && next !== 'voice') voice.cancel();
+    if (mode === 'voice' && next !== 'voice') {
+      stopRealtime();
+      voice.cancel();
+      if (conversing) {
+        replyTurn += 1;
+        speaker.cancel();
+      }
+      conversing = false;
+    }
     const previous = mode;
     mode = next;
     dock.dataset.mode = next;
@@ -148,11 +164,78 @@
     if (mode === 'voice') return finishVoice();
     if (active.pending) return showFeedback('Wait for the current reply before sending another message.');
     navigator.vibrate?.(10);
+    speaker.cancel();
+    speaker.unlock();
+    setMode('voice');
+    waveform.focus({ preventScroll: true });
+    if (window.zippyRealtimeSupported?.()) return startRealtime();
+    conversing = true;
+    listen();
+  }
+
+  // The live conversation: the microphone stays open and Zippy answers in its own voice. When it can't start,
+  // voice falls back to the browser's dictation and speech.
+  function stopRealtime() {
+    if (!realtime) return;
+    const { session, thread } = realtime;
+    realtime = null;
+    session.stop();
+    window.zippyVoiceThread.finish(thread);
+    if (thread === active) renderMessages(false, { followLatest: pinnedToLatest });
+  }
+
+  async function startRealtime() {
+    const thread = active;
+    const live = () => realtime?.session === session;
+    const session = window.createZippyRealtime({
+      url: async () => service.voiceUrl(thread.id, await getRestaurantLocation()),
+      onState(state) {
+        if (!live()) return;
+        updateVoiceState(state, state === 'replying' ? 'Zippy is speaking… just talk to interrupt.' : 'Listening… just talk.');
+      },
+      onEvent(event) {
+        if (!live()) return;
+        if (event.type === 'error') {
+          showFeedback(event.message || 'The voice conversation stopped.');
+          return setMode('idle', true);
+        }
+        if (event.type === 'user' && event.text) transcript.textContent = event.text;
+        const change = window.zippyVoiceThread.apply(thread, event, service);
+        if (event.type === 'done') {
+          if (!thread.connected) push.sync(thread.id);
+          thread.connected = true;
+        }
+        if (thread !== active || !change) return;
+        if (change === 'render') renderMessages(false, { followLatest: pinnedToLatest });
+        else scheduleStreamRender();
+      },
+      onEnd() {
+        if (!live()) return;
+        showFeedback('The voice conversation ended.');
+        setMode('idle', true);
+      },
+    });
+    realtime = { session, thread };
+    updateVoiceState('starting', 'Connecting…');
+    try {
+      await session.start();
+    } catch (error) {
+      if (!live()) return; // Voice was closed while connecting.
+      realtime = null;
+      session.stop();
+      if (error.name === 'NotAllowedError') {
+        showFeedback('Microphone access was denied. You can still type your message.');
+        return setMode('idle', true);
+      }
+      conversing = true;
+      listen();
+    }
+  }
+
+  function listen() {
     voiceText = '';
     transcript.textContent = '';
     sendingVoice = false;
-    setMode('voice');
-    waveform.focus({ preventScroll: true });
     voice.start();
   }
 
@@ -162,14 +245,29 @@
     dock.dataset.voiceState = state;
     voiceStatus.textContent = message;
     waveform.disabled = state === 'transcribing';
-    waveform.setAttribute('aria-label', state === 'starting' ? 'Cancel voice message' : 'Finish voice message');
+    waveform.setAttribute('aria-label', realtime ? 'End voice conversation' : state === 'starting' ? 'Cancel voice message'
+      : state === 'replying' ? 'Interrupt Zippy' : 'Finish voice message');
     if (state !== 'idle') return;
     if (sendingVoice && voiceText.trim()) return submitVoice();
     sendingVoice = false;
-    if (!voiceText.trim()) transcript.textContent = message;
+    if (!voiceText.trim()) {
+      // Silence or a microphone problem ends the conversation; say why instead of closing without a word.
+      if (conversing) {
+        showFeedback(message);
+        return setMode('idle', true);
+      }
+      transcript.textContent = message;
+    }
   }
 
   function finishVoice() {
+    if (realtime) return setMode('idle', true); // Tapping the mic again turns the live conversation off.
+    if (voiceState === 'replying') {
+      // Tapping while Zippy talks interrupts it and listens straight away.
+      replyTurn += 1;
+      speaker.cancel();
+      return listen();
+    }
     if (voiceState === 'listening') {
       sendingVoice = true;
       return voice.stop();
@@ -180,8 +278,20 @@
 
   function submitVoice() {
     const text = voiceText.trim();
-    setMode('idle', true);
-    sendMessage(text);
+    if (!conversing) {
+      setMode('idle', true);
+      return sendMessage(text, true);
+    }
+    if (active.pending) {
+      showFeedback('Zippy is still answering. Say that again in a moment.');
+      return listen();
+    }
+    updateVoiceState('replying', 'Zippy is answering… tap to interrupt.');
+    sendMessage(text, true);
+  }
+
+  function continueConversation() {
+    if (conversing && mode === 'voice' && voiceState === 'replying') listen();
   }
 
   function scrollToLatest(animate = false) {
@@ -475,9 +585,11 @@
     });
   }
 
-  async function requestReply(thread, message) {
+  async function requestReply(thread, message, spoken = false) {
     if (thread.pending) return;
     thread.pending = message.id;
+    const turn = spoken ? ++replyTurn : 0;
+    const speaking = () => spoken && turn === replyTurn;
     const reply = { role: 'assistant', text: '', cards: [], replies: [], waiting: service.waitingMessage() };
     thread.response = reply;
     delete message.error;
@@ -486,14 +598,20 @@
       const restaurantLocation = await getRestaurantLocation();
       await service.chat(thread.id, message.text, event => {
         applyReply(reply, event);
+        if (speaking() && event.type === 'delta' && typeof event.text === 'string') speaker.feed(event.text);
         if (thread === active) scheduleStreamRender();
       }, restaurantLocation);
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
+      if (speaking()) speaker.finish(continueConversation);
       delete reply.waiting;
       thread.messages.push(reply);
       if (!thread.connected) push.sync(thread.id);
       thread.connected = true;
     } catch (error) {
+      if (speaking()) {
+        speaker.cancel();
+        if (conversing) setMode('idle', true);
+      }
       message.error = error.message || 'Couldn’t send this message.';
     } finally {
       delete thread.pending;
@@ -511,14 +629,14 @@
     }
   }
 
-  function sendMessage(text) {
+  function sendMessage(text, spoken = false) {
     if (!text || active.pending) return;
     const thread = active;
     const id = String(thread.messages.length);
     const message = { id, role: 'user', text };
     thread.messages.push(message);
     threads = [thread, ...threads.filter(item => item !== thread)];
-    requestReply(thread, message);
+    requestReply(thread, message, spoken);
   }
 
   function drawHistory() {

@@ -144,3 +144,10 @@ test('waiting messages follow the tool Zippy is using and fall back to a general
   assert.equal(service.waitingMessage('some_new_tool', first), general);
   assert.notEqual(service.waitingMessage(undefined, last), general, 'the random pick reaches every message');
 });
+
+test('the voice address is a WebSocket on the API, carrying the chat and where to search', () => {
+  const guest = loadService();
+  assert.equal(guest.voiceUrl('chat-1', { lat: 13.72, lng: 100.53 }),
+    'wss://zippy.example/api/voice?session_id=chat-1&lat=13.72&lng=100.53');
+  assert.equal(guest.voiceUrl('chat-1'), 'wss://zippy.example/api/voice?session_id=chat-1');
+});

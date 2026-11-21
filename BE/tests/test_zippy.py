@@ -33,8 +33,10 @@ class FakeShopee:
     async def call(self, name, **values):
         self.calls.append((name, values))
         if name == "search_products":
+            if "protein" in values.get("query", "") or values.get("category", "sleep") != "sleep":
+                return []  # Like the real Mall, which sells only sleep and recovery goods.
             return [{"product_id": "p_eyemask", "name": "3D Contoured Sleep Eye Mask", "shop": "Dreamy Sleep Official",
-                     "price_thb": 199, "rating": 4.8, "description": "Blocks all light"}]
+                     "price_thb": 199, "rating": 4.8, "description": "Blocks all light", "category": "sleep"}]
         if name == "place_mall_order":
             assert values == {"items": [{"product_id": "p_eyemask", "qty": 1}]}
             self.status = "pending_payment"
@@ -197,6 +199,10 @@ def say(client, message):
     events = [json.loads(line) for line in response.iter_lines()]
     assert events[-1]["type"] == "done", events
     return events
+
+
+def text(items):
+    return "".join(item["text"] for item in items if item["type"] == "delta")
 
 
 def cards(items):
@@ -406,6 +412,29 @@ def test_coach_is_told_the_current_time_every_turn(tmp_path):
         assert "2026-11-21 07:02" in json.dumps([item for item in turn if item["role"] == "developer"])
 
 
+class RecordingPhone(FakePhone):
+    def __init__(self):
+        self.started = []
+
+    async def start(self, service, booking):
+        self.started.append(booking["restaurant_name"])
+        await super().start(service, booking)
+
+
+def test_guests_call_restaurants_with_the_same_phone_as_the_demo(tmp_path):
+    phone = RecordingPhone()
+    with demo(tmp_path, phone=phone) as (client, _):
+        assert client.post("/visitor", headers={"X-Zippy-Demo": "0"}, json={"name": "Krit"}).is_success
+        owner = "guest-" + sha256(client.cookies["zippy_guest"].encode()).hexdigest()
+        guest = client.app.state.open_visitor(owner, demo=False)
+        guest.session("chat")["places"] = [{"shop_id": "s_salad_factory", "name": "Salad Factory",
+                                            "phone": "+10000000000", "dish": "Chicken salad", "distance_km": 0.4}]
+        booking = client.portal.call(guest.book, "chat", "s_salad_factory", "23:30", 2)
+        client.portal.call(asyncio.sleep, 0.1)  # let the call task finish
+        assert phone.started == ["Salad Factory"]
+        assert guest.state["bookings"][booking["id"]]["status"] == "booked"
+
+
 def test_booking_a_time_that_already_passed_today_is_refused(tmp_path):
     with demo(tmp_path, clock=Clock("2026-11-21T19:45:00+07:00")) as (client, _):
         tools, _ = coach_tools(client)
@@ -453,13 +482,13 @@ def test_chat_reply_text_finishes_streaming_before_its_cards_appear(tmp_path, mo
         assert [event["type"] for event in events] == ["tool", "delta", "delta", "card"]
 
 
-def test_coach_food_recommendation_shows_the_dish_and_asks_before_any_restaurants(tmp_path):
+def test_coach_food_recommendation_shows_the_dish_and_offers_places_without_showing_any(tmp_path):
     with demo(tmp_path) as (client, simulator):
         tools, shown = coach_tools(client)
         use_tool(client, tools, "recommend_meal", meal_time="dinner")
         meal, offer = shown.get_nowait(), shown.get_nowait()
         assert meal["kind"] == "meal" and meal["dish"] and meal["protein_g"] > 0
-        assert meal["dish"] in offer["quick_replies"][0]
+        assert offer["quick_replies"] == [f"Find places for {meal['dish']}", "Something else"]
         assert shown.empty()
         assert not getattr(simulator, "dish_searches", [])
 
@@ -543,6 +572,156 @@ def test_managed_food_search_puts_ranked_mongo_nutrition_in_coach_context(tmp_pa
         assert visitor(client).session("ploy")["places"] == []
 
 
+def test_coach_can_offer_its_own_reply_buttons(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "suggest_replies", options=["  Find places for it ", "Something lighter", "", "Not now", "Later"])
+        assert shown.get_nowait() == {"quick_replies": ["Find places for it", "Something lighter", "Not now"]}
+
+
+def test_coach_sees_products_and_dishes_already_on_screen(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "show_products", query="eye mask")
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        zippy = visitor(client)
+        dish = zippy.session("ploy")["meals_shown"][-1]
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "Is the first one any good?", [])
+        context = json.dumps([item["content"] for item in turn if item["role"] == "developer"])
+        assert "p_eyemask" in context and dish in context
+
+
+class EchoCoach:
+    """Stands in for the AI coach and records which messages reached it."""
+
+    def __init__(self):
+        self.heard = []
+
+    async def stream(self, service, session_id, message, history, *, location=None):
+        self.heard.append(message)
+        yield {"type": "delta", "text": "AI reply"}
+
+
+def test_ai_answers_show_me_options_when_that_button_was_not_offered(tmp_path):
+    coach = EchoCoach()
+    with demo(tmp_path, coach=coach) as (client, simulator):
+        say(client, "Show me options")
+        assert coach.heard == ["Show me options"]
+        assert not any(name == "search_products" for name, _ in simulator.calls)
+
+
+def test_demo_shortcut_still_answers_its_own_button(tmp_path):
+    coach = EchoCoach()
+    with demo(tmp_path, coach=coach) as (client, _):
+        assert client.post("/demo/trigger", json={"moment": "dinner_tip"}).is_success
+        assert "I can call" in text(say(client, "Yes, I'll walk"))
+        assert coach.heard == []
+
+
+def test_a_later_yes_goes_to_the_ai_once_the_walk_offer_is_old(tmp_path):
+    coach = EchoCoach()
+    with demo(tmp_path, coach=coach) as (client, _):
+        assert client.post("/demo/trigger", json={"moment": "dinner_tip"}).is_success
+        say(client, "What about lunch tomorrow?")
+        say(client, "Yes")
+        assert coach.heard == ["What about lunch tomorrow?", "Yes"]
+
+
+def food_catalog():
+    """A MongoDB food catalog with two dishes besides the scripted dinner."""
+    database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_one({"_id": "food_db", "foods": [
+        {"food_id": "salad", "menu": "Grilled chicken salad", "role": "salad", "cuisine": "Thai",
+         "nutrition": {"calories": 400, "protein_g": 35}},
+        {"food_id": "teriyaki", "menu": "Chicken teriyaki rice bowl", "role": "main", "cuisine": "Japanese",
+         "nutrition": {"calories": 550, "protein_g": 38}},
+    ]})
+    return database
+
+def test_coach_shows_a_different_dish_when_asked_for_something_else(tmp_path):
+    with demo(tmp_path, database=food_catalog()) as (client, _):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        first = shown.get_nowait()
+        shown.get_nowait()
+        assert first["dish"] == "Grilled chicken salad"
+
+        result = use_tool(client, tools, "recommend_meal", meal_time="dinner", something_else=True)
+        other, offer = shown.get_nowait(), shown.get_nowait()
+        assert other["kind"] == "meal" and other["dish"] == "Chicken teriyaki rice bowl"
+        assert (other["kcal"], other["protein_g"]) == (550, 38)
+        assert offer["quick_replies"][0] == "Find places for Chicken teriyaki rice bowl"
+        assert result["meal"]["dish"] == "Chicken teriyaki rice bowl"
+
+
+def test_coach_something_else_skips_the_dinner_tip_dish(tmp_path):
+    with demo(tmp_path, database=food_catalog()) as (client, _):
+        assert client.post("/demo/trigger", json={"session_id": "ploy", "moment": "dinner_tip"}).is_success
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner", something_else=True)
+        assert shown.get_nowait()["dish"] == "Chicken teriyaki rice bowl"
+
+
+class MenuShop:
+    """Shopee Food with three real-looking dishes; everything else goes to the usual fake."""
+
+    def __init__(self, inner):
+        self.inner, self.searches = inner, []
+
+    async def call(self, name, **values):
+        if name != "find_similar_dishes" or values.get("dish"):
+            return await self.inner.call(name, **values)
+        self.searches.append(values)
+        return [{"item_id": item_id, "shop_id": "s_easy_health", "name": dish, "price_thb": 150,
+                 "nutrition": {"calories": kcal, "protein_g": protein},
+                 "restaurant": {"shop_id": "s_easy_health", "name": "Easy Health", "distance_km": 0.3}}
+                for item_id, dish, kcal, protein in [("m1", "Pad Thai", 650, 20), ("m2", "Tsunami Bowl", 283, 32),
+                                                     ("m3", "Chicken Larb", 250, 28)]]
+
+
+def test_something_else_suggests_a_real_menu_dish_when_built_in_ideas_run_out(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        visitor(client).shopee = MenuShop(simulator)
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        assert shown.get_nowait()["dish"] == "Grilled chicken salad"
+        shown.get_nowait()
+        use_tool(client, tools, "recommend_meal", meal_time="dinner", something_else=True)
+        other = shown.get_nowait()
+        assert (other["kind"], other["dish"], other["kcal"], other["protein_g"]) == ("meal", "Pad Thai", 650, 20)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner", something_else=True)
+        shown.get_nowait()
+        assert shown.get_nowait()["dish"] == "Tsunami Bowl", "each ask brings a dish not shown before"
+
+
+def test_lighter_suggests_a_dish_with_fewer_calories_than_the_last_one(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        visitor(client).shopee = MenuShop(simulator)
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        assert shown.get_nowait()["kcal"] == 400
+        shown.get_nowait()
+        use_tool(client, tools, "recommend_meal", meal_time="dinner", lighter=True)
+        lighter = shown.get_nowait()
+        assert (lighter["dish"], lighter["kcal"]) == ("Tsunami Bowl", 283)
+        shown.get_nowait()
+        use_tool(client, tools, "recommend_meal", meal_time="dinner", lighter=True)
+        assert shown.get_nowait()["dish"] == "Chicken Larb"
+        shown.get_nowait()
+        result = use_tool(client, tools, "recommend_meal", meal_time="dinner", lighter=True)
+        assert result["meal"] is None and shown.empty(), "nothing lighter than 250 kcal is on the menu"
+
+
+def test_coach_shows_no_card_when_no_other_dish_fits(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        shown.get_nowait(), shown.get_nowait()
+        result = use_tool(client, tools, "recommend_meal", meal_time="dinner", something_else=True)
+        assert shown.empty(), "no card repeats a dish that was already shown"
+        assert result["meal"] is None
+
+
 def test_coach_shows_products_as_cards_the_visitor_can_buy(tmp_path):
     with demo(tmp_path) as (client, simulator):
         tools, shown = coach_tools(client)
@@ -552,6 +731,91 @@ def test_coach_shows_products_as_cards_the_visitor_can_buy(tmp_path):
         assert card["kind"] == "product_compare"
         assert [product["item_id"] for product in card["products"]] == ["p_eyemask"]
         assert client.post("/actions/buy", json={"item_id": "p_eyemask"}).json()["total_thb"] == 229
+
+
+def test_empty_product_search_tells_the_ai_what_the_mall_really_sells(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        result = use_tool(client, tools, "show_products", query="protein bars")
+        assert shown.empty()
+        assert result["products"] == [] and result["mall_sells"] == {"sleep": ["3D Contoured Sleep Eye Mask"]}
+
+
+def test_coach_can_say_what_the_mall_sells_without_showing_a_card(tmp_path):
+    with demo(tmp_path) as (client, _):
+        tools, shown = coach_tools(client)
+        result = use_tool(client, tools, "get_mall_catalog")
+        assert result == {"sleep": ["3D Contoured Sleep Eye Mask"]}
+        assert shown.empty()
+
+
+class TwoAisleMall:
+    """A Mall with four products in each of two categories."""
+
+    async def call(self, name, **values):
+        return [{"product_id": f"p_{aisle}{i}", "name": f"{aisle} item {i}", "shop": "Shop", "price_thb": 100,
+                 "rating": 4.5, "category": aisle} for aisle in ("sleep", "recovery") for i in range(4)]
+
+
+def test_browsing_again_shows_products_not_shown_yet(tmp_path):
+    with demo(tmp_path) as (client, _):
+        visitor(client).shopee = TwoAisleMall()
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "show_products")
+        first = {product["item_id"] for product in shown.get_nowait()["products"]}
+        use_tool(client, tools, "show_products")
+        second = {product["item_id"] for product in shown.get_nowait()["products"]}
+        assert len(second) == 4 and not first & second
+        result = use_tool(client, tools, "show_products")
+        assert shown.empty() and result["products"] == [], "nothing new is left to show"
+
+
+def test_coach_remembers_products_from_earlier_cards_with_their_prices(tmp_path):
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        zippy.shopee = TwoAisleMall()
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "show_products")
+        use_tool(client, tools, "show_products")
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "How much was the first sleep item?", [])
+        context = json.dumps([item["content"] for item in turn if item["role"] == "developer"])
+        assert all(f"p_{aisle}{i}" in context for aisle in ("sleep", "recovery") for i in range(4))
+
+
+def test_a_product_from_an_earlier_card_can_still_be_bought(tmp_path):
+    class CurtainsToo:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def call(self, name, **values):
+            if name == "search_products" and values.get("query") == "curtain":
+                return [{"product_id": "p_curtain", "name": "Blackout Curtain", "shop": "Home", "price_thb": 590,
+                         "rating": 4.6, "category": "sleep"}]
+            return await self.inner.call(name, **values)
+
+    with demo(tmp_path) as (client, simulator):
+        visitor(client).shopee = CurtainsToo(simulator)
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "show_products", query="eye mask")
+        use_tool(client, tools, "show_products", query="curtain")
+        assert client.post("/actions/buy", json={"item_id": "p_eyemask"}).json()["total_thb"] == 229
+
+
+def test_browsing_the_whole_mall_shows_a_mix_of_categories(tmp_path):
+    with demo(tmp_path) as (client, _):
+        visitor(client).shopee = TwoAisleMall()
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "show_products")
+        aisles = [product["name"].split()[0] for product in shown.get_nowait()["products"]]
+        assert aisles == ["sleep", "recovery", "sleep", "recovery"]
+
+
+def test_coach_can_browse_a_mall_category(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "show_products", category="sleep")
+        assert ("search_products", {"query": "", "category": "sleep"}) in simulator.calls
+        assert shown.get_nowait()["kind"] == "product_compare"
 
 
 def test_coach_dish_search_can_target_protein_and_calories(tmp_path):
@@ -1206,3 +1470,163 @@ def test_coach_reply_shows_only_its_last_card_and_quick_replies(tmp_path, monkey
         events = client.portal.call(collect)
         assert events == [{"type": "card", "card": {"kind": "meal"}},
                           {"type": "quick_replies", "options": ["Find places"]}]
+
+
+class FakeVoiceSession:
+    """Stands in for an entered Realtime session. The test pushes events in as if they came from OpenAI."""
+
+    def __init__(self, agent):
+        self.agent = agent
+        self.loop = asyncio.get_running_loop()
+        self.events = asyncio.Queue()
+        self.audio_in = bytearray()
+        self.closed = False
+
+    async def send_audio(self, audio):
+        self.audio_in.extend(audio)
+
+    async def close(self):
+        self.closed = True
+        self.events.put_nowait(None)
+
+    def push(self, event=None, **fields):
+        self.loop.call_soon_threadsafe(self.events.put_nowait, event if event is not None else SimpleNamespace(**fields))
+
+    def run_tool(self, name, **arguments):
+        """Run one of the agent's tools on the app's loop, as the SDK does when the model calls it."""
+        self.push(("tool", name, arguments))
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        while True:
+            event = await self.events.get()
+            if event is None:
+                raise StopAsyncIteration
+            if isinstance(event, tuple):
+                _, name, arguments = event
+                payload = json.dumps(arguments)
+                tool = next(tool for tool in self.agent.tools if tool.name == name)
+                await tool.on_invoke_tool(
+                    ToolContext(context=None, tool_name=name, tool_call_id="v1", tool_arguments=payload), payload)
+                continue
+            return event
+
+
+@contextmanager
+def voice_demo(tmp_path):
+    from integrations import Prompts
+
+    sessions = []
+
+    async def open_session(agent):
+        sessions.append(FakeVoiceSession(agent))
+        return sessions[-1]
+
+    with demo(tmp_path, coach=AgentsCoach(Prompts(None)), voice_sessions=open_session) as (client, simulator):
+        yield client, sessions
+
+
+def spoken(item_id, delta):
+    return SimpleNamespace(type="raw_model_event", data=SimpleNamespace(type="transcript_delta", item_id=item_id, delta=delta))
+
+
+def heard(item_id, delta):
+    return SimpleNamespace(type="raw_model_event", data=SimpleNamespace(type="raw_server_event", data={
+        "type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "delta": delta}))
+
+
+def test_voice_passes_audio_both_ways_and_reports_being_talked_over(tmp_path):
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            assert {"show_products", "recommend_meal", "book_table_by_phone"} <= {tool.name for tool in session.agent.tools}
+            browser.send_bytes(b"\x01\x00" * 2048)
+            session.push(type="audio", audio=SimpleNamespace(data=b"\x02\x00" * 100))
+            assert browser.receive_bytes() == b"\x02\x00" * 100
+            assert bytes(session.audio_in) == b"\x01\x00" * 2048
+            session.push(type="audio_interrupted")
+            assert browser.receive_json() == {"type": "interrupted"}
+        client.portal.call(asyncio.sleep, 0.1)
+        assert session.closed
+
+
+def test_voice_turn_shows_words_then_cards_in_one_reply_and_is_saved_to_the_chat(tmp_path):
+    from agents.realtime.items import InputAudio, RealtimeToolCallItem, UserMessageItem
+
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            session.push(type="history_added", item=UserMessageItem(item_id="u1", content=[InputAudio(transcript=None)]))
+            assert browser.receive_json() == {"type": "user", "item_id": "u1", "text": ""}
+            session.push(heard("u1", "I need "))
+            session.push(heard("u1", "an eye mask"))
+            assert browser.receive_json() == {"type": "user", "item_id": "u1", "text": "I need "}
+            assert browser.receive_json() == {"type": "user", "item_id": "u1", "text": "I need an eye mask"}
+
+            # The model says a few words, calls a tool, then finishes its answer in a second turn.
+            session.push(spoken("a1", "One moment."))
+            assert browser.receive_json() == {"type": "delta", "text": "One moment."}
+            session.push(type="history_added", item=RealtimeToolCallItem(
+                item_id="t1", call_id="c1", name="show_products", arguments="{}", status="in_progress"))
+            session.push(type="agent_end")
+            session.push(type="tool_start", tool=SimpleNamespace(name="show_products"))
+            assert browser.receive_json() == {"type": "tool", "name": "show_products"}
+            session.run_tool("show_products", query="eye mask")
+            session.push(type="tool_end", tool=SimpleNamespace(name="show_products"))
+            session.push(spoken("a2", "Here are some masks."))
+            assert browser.receive_json() == {"type": "delta", "text": " Here are some masks."}
+            session.push(type="agent_end")
+            card = browser.receive_json()
+            assert card["type"] == "card" and card["card"]["kind"] == "product_compare"
+            assert browser.receive_json() == {"type": "done"}
+
+        zippy = visitor(client)
+        assert zippy.session("talk")["history"][-2:] == [
+            {"role": "user", "content": "I need an eye mask"},
+            {"role": "assistant", "content": "One moment. Here are some masks."}]
+        turn = client.get("/sessions/talk").json()["timeline"][-1]
+        assert turn["type"] == "turn" and turn["message"] == "I need an eye mask"
+        assert [event["type"] for event in turn["events"]] == ["tool", "delta", "card"]
+
+
+def test_voice_reply_stays_open_when_the_tool_finishes_before_its_turn_ends(tmp_path):
+    from agents.realtime.items import RealtimeToolCallItem
+
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            session.push(type="agent_start")
+            session.push(spoken("a1", "Sure."))
+            assert browser.receive_json() == {"type": "delta", "text": "Sure."}
+            session.push(type="history_added", item=RealtimeToolCallItem(
+                item_id="t1", call_id="c1", name="get_sleep_last_night", arguments="{}", status="in_progress"))
+            session.push(type="tool_start", tool=SimpleNamespace(name="get_sleep_last_night"))
+            assert browser.receive_json() == {"type": "tool", "name": "get_sleep_last_night"}
+            session.run_tool("get_sleep_last_night")
+            session.push(type="tool_end", tool=SimpleNamespace(name="get_sleep_last_night"))
+            session.push(type="agent_end")      # the turn that called the tool ends only now
+            session.push(type="agent_start")
+            session.push(spoken("a2", "You slept five hours."))
+            assert browser.receive_json() == {"type": "delta", "text": " You slept five hours."}, "no early done"
+            session.push(type="agent_end")
+            assert browser.receive_json()["card"]["kind"] == "sleep_insight"
+            assert browser.receive_json() == {"type": "done"}
+
+
+def test_voice_needs_the_api_token_a_visitor_and_an_ai_key(tmp_path):
+    with voice_demo(tmp_path) as (client, sessions):
+        for headers in ({"Authorization": "Bearer wrong"}, {"Cookie": "zippy_ploy=missing"}):
+            try:
+                with client.websocket_connect("/voice?session_id=talk&demo=1", headers=headers):
+                    raise AssertionError("an unauthorised voice connection was accepted")
+            except WebSocketDisconnect as error:
+                assert error.code == 1008
+        assert sessions == []
+    with demo(tmp_path / "no-ai") as (client, _):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json()["type"] == "error"

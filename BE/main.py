@@ -25,6 +25,7 @@ from recommendations import BucketRecommendationData, RecommendationAgents, Reco
 from service import MOMENTS, Zippy
 from storage import VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
+from voice import VoiceBridge, close_quietly, open_voice_session
 
 load_dotenv()
 Moment = Literal["morning_sleep", "dinner_tip", "daily_summary", "weekly_recap"]
@@ -163,7 +164,7 @@ def visitor_id(request, demo):
 
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
                phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None,
-               recommendation_data=None, images=None):
+               recommendation_data=None, images=None, voice_sessions=None):
     settings = settings or Settings()
     push_sender = push or (WebPush(settings.vapid_public_key, settings.vapid_private_key, settings.vapid_subject)
                            if settings.vapid_public_key and settings.vapid_private_key else None)
@@ -236,19 +237,20 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         stores = VisitorStores(demo_date, db)
         visitors = {}
 
-        def build(guest_store, demo):
+        def build(guest_store):
+            # Every visitor books through the same phone. Live calls still dial only TWILIO_VERIFIED_TEST_NUMBERS.
             return Zippy(guest_store, local_clock, health, adapter, prompts,
-                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender, menu_images)
+                         assistant, telephony, photo_reader, push_sender, menu_images)
 
         def open_visitor(owner, *, demo, profile=None, create=False):
             if owner and owner not in visitors:
                 guest_store = stores.open(owner, demo=demo, profile=profile, create=create)
                 if guest_store is not None:
-                    visitors[owner] = build(guest_store, demo)
+                    visitors[owner] = build(guest_store)
             return visitors.get(owner)
 
         default_store = store or stores.open("scheduled-demo", demo=True, create=True)
-        zippy = build(default_store, True)
+        zippy = build(default_store)
         app.state.zippy = zippy
         app.state.open_visitor = open_visitor
         app.state.find_guests = stores.find_owners
@@ -266,6 +268,14 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         app.state.booking_service = booking_service
         app.state.realtime = voice_agents
+
+        async def default_voice_session(agent):
+            return await open_voice_session(
+                agent, model=os.getenv("REALTIME_MODEL") or "gpt-realtime-2.1", voice=os.getenv("REALTIME_VOICE"),
+                languages=[code.strip() for code in os.getenv("TRANSCRIPTION_LANGUAGES", "en").split(",") if code.strip()],
+            )
+
+        app.state.voice_sessions = voice_sessions or default_voice_session
 
         async def reminders():
             while True:
@@ -707,6 +717,43 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         duration = str(fields.get("CallDuration", ""))
         await zippy.finish_call(booking_id, status, int(duration) if duration.isdigit() else None)
         return {"status": "ok"}
+
+    @app.websocket("/voice")
+    async def voice(socket: WebSocket):
+        """The browser voice coach: microphone audio in, the coach's speech, words and cards out."""
+        token = socket.headers.get("authorization") or f"Bearer {socket.query_params.get('token', '')}"
+        demo = socket.query_params.get("demo") == "1" or visitor_mode(socket)
+        zippy = socket.app.state.open_visitor(visitor_id(socket, demo), demo=demo)
+        session_id = socket.query_params.get("session_id", "ploy")
+        if (not secrets.compare_digest(token.encode(), f"Bearer {settings.token}".encode()) or zippy is None
+                or not re.fullmatch(SESSION_ID, session_id)):
+            await socket.close(code=1008)
+            return
+        await socket.accept()
+        if not hasattr(zippy.coach, "voice_agent"):
+            await socket.send_json({"type": "error", "message": "Voice conversations need an OpenAI key."})
+            await close_quietly(socket)
+            return
+        try:
+            location = None if zippy.store.demo else SearchLocation(
+                lat=socket.query_params["lat"], lng=socket.query_params["lng"]).model_dump()
+        except (KeyError, ValueError):
+            location = None
+        cards = asyncio.Queue()
+        session = None
+        try:
+            session = await socket.app.state.voice_sessions(
+                zippy.coach.voice_agent(zippy, session_id, cards, location=location))
+            await VoiceBridge(socket, zippy, session_id, cards).run(session)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            try:
+                await socket.send_json({"type": "error", "message": "The voice conversation couldn't start. Try again."})
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+        finally:
+            await close_quietly(socket, session)
 
     @app.websocket("/media-stream")
     @app.websocket("/media-stream/")

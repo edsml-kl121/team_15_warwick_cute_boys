@@ -215,8 +215,8 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 
 Keep prompts in one backend YAML file and restart after edits. Validate required keys and supported placeholders at startup.
 
-- **`coach.shared`**. Be brief and warm. Use one chart, one reason and one fix. Get numbers from tools and use `show_*` for choices. Respect Ploy's goals and tastes. Explain that Ploy approves payment. Use Food listings to suggest places, offer a walk when Ploy is inactive, and book by phone with permission. After a failed call, suggest the next closest similar place. Reply in the language of her latest message.
-- **`coach.chat_style`**. Plain text in one or two short paragraphs.
+- **`coach.shared`**. A warm, natural companion that follows the visitor's lead: answer what they asked, chat, explain or ask when unclear, and use what's on screen for follow-ups. Cards carry the details. Suggest a dish before restaurants, mention only tool results, and offer reply buttons for obvious next steps. Firm rules: book by phone only after the visitor agrees to the place, time and party size; only the visitor approves payment; no diagnoses or medical promises. Always reply in English.
+- **`coach.chat_style`**. Phone-sized: usually one to three short sentences, longer when asked to explain, no lists, varied openings.
 - **`proactive.morning_sleep`, `proactive.dinner_tip`, `proactive.daily_summary`**. Define data to inspect, cards, a one-line notification and the first chat message.
 - **`recommendation.food` and `recommendation.item`**. Choose from a context-specific shortlist. The backend looks up Shopee listings after the choice and sends the resulting cards to the guest.
 - **`phone.rules`**. Speak first in `{language}` and switch if requested. Keep turns short and read the time and party size back. Use confirmed details, keep the call focused on the reservation, say goodbye and call `end_call`.

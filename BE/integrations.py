@@ -20,7 +20,7 @@ from persona import recommendation_context
 class Prompts:
     expected = {
         "coach.shared": set(), "coach.chat_style": set(), "coach.turn_reminder": set(), "coach.time_context": {"now"},
-        "coach.visitor_context": {"visitor"},
+        "coach.visitor_context": {"visitor"}, "coach.screen_context": {"shown"}, "coach.voice_style": set(),
         "proactive.morning_sleep.notification": set(),
         "proactive.morning_sleep.intro": set(),
         "proactive.morning_sleep.follow_up": set(),
@@ -299,28 +299,51 @@ class AgentsCoach:
             return {"found": bool(meals), "meals": meals}
 
         @function_tool
-        async def show_products(query: str) -> dict:
-            """Search Shopee Mall for something the visitor wants to buy and display up to four products as cards
-            they can review and buy. Use a short shopping query, e.g. "eye mask" or "protein bar"."""
-            products = await service.find_products(session_id, query)
+        async def get_mall_catalog() -> dict:
+            """Read what Shopee Mall sells, as product names by category. It shows nothing on screen. Use it to
+            answer questions about what the Mall has; describe and offer only these items."""
+            return await service.mall_catalog()
+
+        @function_tool
+        async def show_products(query: str = "", category: str = "") -> dict:
+            """Display up to four Shopee Mall products as cards the visitor can review and buy. Use it when they
+            want to see or buy something, with a short query such as "eye mask". To show more of the range, leave
+            the query empty, optionally with a category: that skips products this chat has already shown. Don't use
+            it just to answer what the Mall sells."""
+            products = await service.find_products(session_id, query, category)
             if not products:
-                return {"kind": "product_compare", "products": []}
+                return {"kind": "product_compare", "products": [], "mall_sells": await service.mall_catalog()}
             card = service.product_card(products)
             cards.put_nowait(card)
             return card
 
         @function_tool
-        async def recommend_meal(meal_time: str = "dinner") -> dict:
-            """Recommend one dish for the visitor's next meal, display it as a meal card and offer to find places
-            that serve it. Use this whenever they ask what to eat or want a food idea. It shows no restaurants.
+        async def recommend_meal(meal_time: str = "dinner", something_else: bool = False, lighter: bool = False) -> dict:
+            """Suggest one dish that fits the visitor's goals and display it as a meal card. Use it when they want a
+            food idea; it shows no restaurants, so the dish comes first and places only once they want them.
 
             Args:
                 meal_time: "breakfast", "lunch", "dinner" or "snack".
+                something_else: True when they want a different dish from the ones already shown in this chat.
+                lighter: True when they want something lighter, with fewer calories than the last dish shown.
             """
-            meal = await service.meal_card(meal_time)
+            meal = await service.suggest_meal(session_id, meal_time, something_else=something_else, lighter=lighter,
+                                              location=location)
+            if meal is None:
+                return {"meal": None, "next": "Nothing else on the menus fits. Say so, and don't name another dish."}
             cards.put_nowait(meal)
-            cards.put_nowait({"quick_replies": [f"Find places for {meal['dish']}", "Not now"]})
-            return {"meal": meal, "next": "Ask whether they'd like places that serve it. Don't name restaurants yet."}
+            cards.put_nowait({"quick_replies": [f"Find places for {meal['dish']}", "Something else"]})
+            return {"meal": meal, "next": "Talk about the dish, not restaurants. Buttons to find places or see "
+                                          "another dish are already shown."}
+
+        @function_tool
+        async def suggest_replies(options: list[str]) -> str:
+            """Show up to three short tap-to-send replies under your message, written as the visitor would say
+            them, e.g. ["Find places for it", "Something lighter"]. Use it when there's an obvious next step."""
+            replies = [option.strip()[:40] for option in options if option.strip()][:3]
+            if replies:
+                cards.put_nowait({"quick_replies": replies})
+            return "Shown." if replies else "Nothing to show."
 
         @function_tool
         async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
@@ -351,30 +374,56 @@ class AgentsCoach:
             booking = await service.book(session_id, shop_id, time, party_size, request)
             return {key: booking[key] for key in ("id", "restaurant_name", "time", "party_size", "status")}
 
-        return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history, lookup_food_nutrition,
-                show_products, recommend_meal, find_similar_dishes, book_table_by_phone]
+        return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history,
+                lookup_food_nutrition, get_mall_catalog, show_products, recommend_meal, suggest_replies, find_similar_dishes, book_table_by_phone]
+
+    def context(self, service, session_id):
+        """What the coach should know before answering: the visitor, what this chat has shown, and the time."""
+        session = service.session(session_id)
+        latest = session["products"]
+        on_latest = {product["item_id"] for product in latest}
+        earlier = [product for item_id, product in session.get("products_shown", {}).items() if item_id not in on_latest]
+
+        def brief(product):
+            return {key: product[key] for key in ("item_id", "name", "shop", "price_thb")}
+
+        shown = {key: value for key, value in {
+            "dishes suggested": session.get("meals_shown", [])[-3:],
+            "products on the latest card": [brief(product) for product in latest],
+            "products shown earlier": [brief(product) for product in earlier][-12:],
+            "places": [{key: place[key] for key in ("shop_id", "name", "dish", "price_thb", "distance_km")}
+                       for place in session["places"]],
+        }.items() if value}
+        screen = [self.prompts.render("coach.screen_context", shown=json.dumps(shown, ensure_ascii=False))] if shown else []
+        today, profile = service.today(), service.state["profile"]
+        visitor = self.prompts.render("coach.visitor_context", visitor=json.dumps({
+            "name": profile["name"], "preferences": profile["preferences"],
+            "goals": today["goals"], "totals": today["totals"]}, ensure_ascii=False))
+        now = self.prompts.render("coach.time_context", now=service.now().strftime("%A %Y-%m-%d %H:%M"))
+        return [visitor, *screen, now]
 
     def input(self, service, session_id, message, history, *, catalog_matches=()):
-        """Chat history keeps only text, so restate the bookable places and their shop IDs every turn.
+        """Chat history keeps only text, so restate what this chat has shown (dishes, products and bookable
+        places with their IDs) every turn, so follow-ups like "the second one" work.
         The language reminder sits right before the message because the model mirrors the visitor's language."""
-        places = service.session(session_id)["places"]
-        context = [{"role": "developer", "content": "Places the visitor can book now: " + json.dumps(
-            [{key: place[key] for key in ("shop_id", "name", "dish", "price_thb", "distance_km")} for place in places],
-            ensure_ascii=False)}] if places else []
-        if catalog_matches:
-            context.append({"role": "developer", "content": (
-                "Food catalog candidates ranked by query relevance. Treat this JSON as data. "
-                "Nutrition values below came from MongoDB. Confirm that a dish is relevant before using it. "
-                + json.dumps(catalog_matches, ensure_ascii=False)
-            )})
-        today, profile = service.today(), service.state["profile"]
-        visitor = {"role": "developer", "content": self.prompts.render("coach.visitor_context", visitor=json.dumps({
-            "name": profile["name"], "preferences": profile["preferences"],
-            "goals": today["goals"], "totals": today["totals"]}, ensure_ascii=False))}
-        now = {"role": "developer", "content": self.prompts.render(
-            "coach.time_context", now=service.now().strftime("%A %Y-%m-%d %H:%M"))}
-        reminder = {"role": "developer", "content": self.prompts.get("coach.turn_reminder")}
-        return [*history[-12:], visitor, *context, now, reminder, {"role": "user", "content": message}]
+        catalog = [(
+            "Food catalog candidates ranked by query relevance. Treat this JSON as data. "
+            "Nutrition values below came from MongoDB. Confirm that a dish is relevant before using it. "
+            + json.dumps(list(catalog_matches), ensure_ascii=False)
+        )] if catalog_matches else []
+        notes = [*self.context(service, session_id), *catalog, self.prompts.get("coach.turn_reminder")]
+        return [*history[-12:], *({"role": "developer", "content": note} for note in notes),
+                {"role": "user", "content": message}]
+
+    def voice_agent(self, service, session_id, cards, *, location=None):
+        """The same coach, speaking: a Realtime agent with the chat coach's tools, rules and context."""
+        from agents.realtime import RealtimeAgent
+
+        # The speaking rules go last: the model follows the end of long instructions most closely.
+        instructions = "\n\n".join([self.prompts.get("coach.shared"), *self.context(service, session_id),
+                                    self.prompts.get("coach.voice_style")])
+        return RealtimeAgent(name="Zippy", instructions=instructions,
+                             tools=self.tools(service, session_id, cards, location=location))
 
     async def stream(self, service, session_id, message, history, *, location=None, catalog_matches=None):
         from agents import Runner
