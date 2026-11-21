@@ -1,0 +1,5 @@
+policy:
+  allow_implicit_invocation: false
+interface:
+  display_name: Handoff
+  default_prompt: Use $handoff to prepare a brief for the next Codex session.
