@@ -14,6 +14,11 @@
   const historyList = history.querySelector('.history-list');
   const order = document.querySelector('.order-dialog');
   const photo = document.querySelector('#meal-photo');
+  const scan = document.querySelector('.scan-dialog');
+  const scanPreview = scan.querySelector('.scan-preview');
+  const scanStatus = scan.querySelector('.scan-status');
+  const scanResult = scan.querySelector('.scan-result');
+  const scanRetry = scan.querySelector('.scan-retry');
   const feedback = document.querySelector('#feedback');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const main = document.querySelector('.ph');
@@ -34,11 +39,12 @@
   let reviewedOrder;
   let pendingOrder;
   let checkingUpdates = false;
+  let previewUrl;
 
   const pages = window.createZippyPages({
     service,
     showFeedback,
-    onPhoto: () => photo.click(),
+    onPhoto: openPhotoPicker,
     onVoice: () => {
       location.hash = '';
       openVoice();
@@ -46,6 +52,14 @@
   });
 
   const push = window.createZippyPush({ service, showFeedback });
+
+  function openPhotoPicker() {
+    if (scan.hasAttribute('data-busy')) {
+      if (!scan.open) scan.showModal();
+    } else {
+      photo.click();
+    }
+  }
 
   const voice = window.createZippyVoice({
     transcribe: service.transcribe,
@@ -665,7 +679,7 @@
     'quick-reply': control => sendMessage(control.textContent.trim()),
     attach: () => {
       if (mode === 'voice') setMode('idle');
-      photo.click();
+      openPhotoPicker();
     },
     retry(control) {
       const message = active.messages.find(item => item.id === control.dataset.messageId && item.role === 'user');
@@ -710,19 +724,70 @@
         .catch(error => showFeedback(error.message));
     }
   });
+  function showScanResult(meal) {
+    scanResult.querySelector('h3').textContent = meal.dish;
+    scanResult.querySelector('.scan-kcal').textContent = `≈ ${meal.kcal.toLocaleString()} kcal`;
+    scanResult.querySelector('.scan-macros').textContent
+      = `${meal.protein_g} g protein · ${meal.carbs_g} g carbs · ${meal.fat_g} g fat`;
+    scanResult.querySelector('.scan-items').replaceChildren(...(meal.items || []).map(item => {
+      const row = document.createElement('li');
+      const portion = document.createElement('span');
+      const calories = document.createElement('span');
+      portion.textContent = `${item.name} · ${item.portion}`;
+      calories.textContent = `≈ ${item.kcal.toLocaleString()} kcal`;
+      row.append(portion, calories);
+      return row;
+    }));
+    scanResult.querySelector('.scan-uncertainty').textContent = meal.uncertainty
+      ? `Photo-based estimate. ${meal.uncertainty}` : 'Nutrition is estimated from the photo.';
+    scanResult.hidden = false;
+  }
+
+  function clearScanPreview() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = undefined;
+    scanPreview.removeAttribute('src');
+  }
+
+  scan.addEventListener('close', () => {
+    if (!scan.hasAttribute('data-busy')) clearScanPreview();
+  });
+  scanRetry.addEventListener('click', openPhotoPicker);
+  scan.querySelector('.scan-log').addEventListener('click', () => scan.close());
+
   photo.addEventListener('change', async () => {
     const file = photo.files[0];
     photo.value = '';
-    if (!file) return;
+    if (!file || scan.hasAttribute('data-busy')) return;
     if (file.size > 10 * 1024 * 1024) return showFeedback('Choose a photo under 10 MB.');
     const thread = active;
+    clearScanPreview();
+    previewUrl = URL.createObjectURL(file);
+    scanPreview.src = previewUrl;
+    scanResult.hidden = true;
+    scanRetry.hidden = true;
+    scan.setAttribute('data-busy', '');
+    scanStatus.textContent = 'Uploading photo…';
+    if (!scan.open) scan.showModal();
     try {
-      await service.photo(file, thread.id);
+      const meal = await service.photo(file, thread.id, event => {
+        if (event.stage === 'analyzing') scanStatus.textContent = 'Identifying foods and estimating portions…';
+        if (event.stage === 'saving') scanStatus.textContent = 'Saving to your Food log…';
+      });
+      showScanResult(meal);
+      scanStatus.textContent = 'Meal logged';
+      pages.setFoodDate(meal.date);
+      if (['food', 'today'].includes(location.hash.slice(1))) pages.render(location.hash.slice(1));
       thread.connected = true;
       if (!threads.includes(thread)) threads.unshift(thread);
       checkUpdates();
     } catch (error) {
-      showFeedback(error.message);
+      scanStatus.textContent = error.message;
+      scanRetry.hidden = false;
+      if (!scan.open) showFeedback(error.message);
+    } finally {
+      scan.removeAttribute('data-busy');
+      if (!scan.open) clearScanPreview();
     }
   });
   input.addEventListener('input', () => {
@@ -740,7 +805,7 @@
     sendMessage(text);
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !history.open && !order.open && mode !== 'idle') setMode('idle', true);
+    if (event.key === 'Escape' && !history.open && !order.open && !scan.open && mode !== 'idle') setMode('idle', true);
   });
   window.addEventListener('pagehide', () => voice.cancel());
 

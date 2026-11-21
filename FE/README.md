@@ -6,6 +6,8 @@ The keyboard replaces the three dock controls with a message bar and **Back**. *
 
 Open the menu for **Today**, **Food log**, **Profile** and **Connect apps**. These pages read the backend's `/today`, `/food-log` and `/profile` routes. The menu's **Presenter** section triggers demo moments and opens `presenter.html`, a dashboard for every trigger flow. To install on iPhone, open the HTTPS site in Safari, tap Share, then **Add to Home Screen**. Web push needs the backend routes described in [CHAT_API.md](CHAT_API.md#web-push-backend-work-needed).
 
+Use the camera button in chat or on the Food log page to upload a meal photo (JPG, PNG or WebP, up to 10 MB). When the backend has an OpenAI key, the scan shows upload, analysis and saving progress, then displays the estimated calories, macros and portions. **View Food log** opens the saved day.
+
 Read [CHAT_API.md](CHAT_API.md) for the FastAPI connection, checkout, optional transcription, and original demo values. The static preview opens with an empty conversation. Sending requires the API.
 
 ## Verification

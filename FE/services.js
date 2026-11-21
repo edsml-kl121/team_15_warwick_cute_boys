@@ -39,8 +39,12 @@
 
   async function chat(sessionId, message, onEvent) {
     const response = await send(urlFor('chat'), { session_id: sessionId, message });
+    await readEvents(response, onEvent, 'chat', 'The reply was interrupted. You can retry it.');
+  }
+
+  async function readEvents(response, onEvent, label, interrupted) {
     if (!response.body || !response.headers.get('content-type')?.includes('application/x-ndjson')) {
-      throw new Error('Zippy did not receive a chat stream from the server.');
+      throw new Error(`Zippy did not receive a ${label} stream from the server.`);
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -54,11 +58,11 @@
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = JSON.parse(line);
-          if (event.type === 'done') return;
+          if (event.type === 'done') return event;
           if (event.type === 'error') throw new Error(event.message || 'Zippy couldn’t finish this response.');
           onEvent(event);
         }
-        if (done) throw new Error('The reply was interrupted. You can retry it.');
+        if (done) throw new Error(interrupted);
       }
     } finally {
       await reader.cancel().catch(() => {});
@@ -153,10 +157,14 @@
     }
   }
 
-  async function photo(file, sessionId) {
+  async function photo(file, sessionId, onEvent) {
     const body = new FormData();
     body.append('file', file);
-    return json('food-log/photo?' + new URLSearchParams({ session_id: sessionId }), body);
+    const query = new URLSearchParams({ session_id: sessionId, stream: 'true' });
+    const response = await send(urlFor('food-log/photo?' + query), body);
+    const { meal } = await readEvents(response, onEvent, 'food scan',
+      'The scan was interrupted. Check your Food log before trying again.');
+    return meal;
   }
 
   async function transcribe(audio) {

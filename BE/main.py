@@ -4,11 +4,12 @@ import os
 import re
 import secrets
 import uuid
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import aclosing, asynccontextmanager, nullcontext
 from datetime import date, datetime, timezone
 from hashlib import sha256
 from typing import Annotated, Literal
 
+from anyio import CancelScope
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -145,9 +146,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                     int(os.getenv("RING_TIMEOUT_SECONDS", "40")), int(os.getenv("MAX_CALL_SECONDS", "300")),
                 )
         photo_reader = photos
-        if photo_reader is None and settings.use_ai and os.getenv("S3_BUCKET"):
-            photo_reader = MealPhotos(os.environ["S3_BUCKET"], os.getenv("AWS_REGION"),
-                                      os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"))
+        if photo_reader is None and settings.use_ai:
+            photo_reader = MealPhotos(os.getenv("S3_BUCKET"), os.getenv("AWS_REGION"),
+                                      os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
+                                      os.getenv("FOOD_SCAN_MODEL") or "gpt-4.1-mini")
         assistant = coach or (AgentsCoach(prompts) if settings.use_ai else None)
         demo_date = local_clock.now().date().isoformat()
         mongo_client = None
@@ -342,36 +344,75 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         result = meal.copy()
         key = result.pop("photo_key", None)
         if key and photos:
-            result["photo_url"] = photos.url(key)
+            url = photos.url(key)
+            if url:
+                result["photo_url"] = url
         return result
 
-    @app.post("/food-log/photo", dependencies=protected)
-    async def photo(file: UploadFile = File(), session_id: SessionQuery = "ploy", zippy=Depends(service)):
-        if zippy.photos is None:
-            raise HTTPException(503, "Meal photo analysis requires OpenAI and S3 configuration.")
-        if not file.content_type or not file.content_type.startswith("image/"):
-            raise HTTPException(415, "Choose an image.")
-        image = await file.read(10 * 1024 * 1024 + 1)
-        if len(image) > 10 * 1024 * 1024:
-            raise HTTPException(413, "Choose an image under 10 MB.")
+    async def scan_meal(zippy, session_id, image):
         snapshot = zippy.state
         entry_id = uuid.uuid4().hex
         key = f"meals/{entry_id}.jpg"
+        yield {"type": "progress", "stage": "analyzing"}
         try:
             estimate = await zippy.photos.read(image, key)
-        except ValueError:
-            raise
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
         except Exception:
-            raise HTTPException(502, "Could not analyze the photo.") from None
-        async with zippy.mutation:
-            if snapshot is not zippy.state:
-                await zippy.photos.discard(key)
-                raise HTTPException(409, "The demo was reset. Upload the photo again.")
-            entry = {"id": entry_id, "date": zippy.state["date"], "time": zippy.now().strftime("%H:%M"),
-                     "meal": "Meal", "source": "photo", "photo_key": key, **estimate}
-            zippy.state["food"].append(entry)
-            zippy.emit(session_id, {"text": f"Meal logged from your photo: {entry['dish']}, about {entry['protein_g']} g protein."})
-            return public_meal(entry, zippy.photos)
+            raise HTTPException(502, "Couldn’t analyze the photo. Try again in a moment.") from None
+        saved = False
+        try:
+            yield {"type": "progress", "stage": "saving"}
+            async with zippy.mutation:
+                if snapshot is not zippy.state:
+                    raise HTTPException(409, "The demo was reset. Upload the photo again.")
+                entry = {"id": entry_id, "date": zippy.state["date"], "time": zippy.now().strftime("%H:%M"),
+                         "meal": "Meal", "source": "photo", "photo_key": key, **estimate}
+                public = public_meal(entry, zippy.photos)
+                if "photo_url" not in public:
+                    entry.pop("photo_key")
+                zippy.state["food"].append(entry)
+                # The store may have written the meal if saving the feed entry fails.
+                saved = True
+                zippy.emit(session_id, {"text": f"Logged {entry['dish']} from your photo. About "
+                                               f"{entry['kcal']} kcal and {entry['protein_g']} g protein."})
+            yield {"type": "done", "meal": public}
+        finally:
+            if not saved:
+                with CancelScope(shield=True):
+                    await zippy.photos.discard(key)
+
+    @app.post("/food-log/photo", dependencies=protected)
+    async def photo(file: UploadFile = File(), session_id: SessionQuery = "ploy", stream: bool = False,
+                    zippy=Depends(service)):
+        if zippy.photos is None:
+            raise HTTPException(503, "Meal photo analysis requires an OpenAI API key.")
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(415, "Choose an image.")
+        limit = 10 * 1024 * 1024
+        image = await file.read(limit + 1)
+        if not image:
+            raise HTTPException(400, "Choose a nonempty photo.")
+        if len(image) > limit:
+            raise HTTPException(413, "Choose an image under 10 MB.")
+
+        if not stream:
+            async with aclosing(scan_meal(zippy, session_id, image)) as scan:
+                async for event in scan:
+                    if event["type"] == "done":
+                        return event["meal"]
+
+        async def events():
+            try:
+                async with aclosing(scan_meal(zippy, session_id, image)) as scan:
+                    async for event in scan:
+                        yield json.dumps(event, ensure_ascii=False) + "\n"
+            except HTTPException as error:
+                yield json.dumps({"type": "error", "message": error.detail}) + "\n"
+            except Exception:
+                yield json.dumps({"type": "error", "message": "Couldn’t finish saving. Check your Food log before retrying."}) + "\n"
+
+        return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"})
 
     @app.post("/chat", dependencies=protected)
     async def chat(body: ChatBody, zippy=Depends(service)):

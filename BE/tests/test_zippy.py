@@ -61,9 +61,13 @@ class FakePhone:
 
 class FakePhotos:
     async def read(self, image, key):
-        assert image == b"photo"
         assert key.startswith("meals/") and key.endswith(".jpg")
-        return {"dish": "Rice and chicken", "kcal": 350, "protein_g": 28, "carbs_g": 32, "fat_g": 12}
+        if image == b"not food":
+            raise ValueError("No food was clearly visible.")
+        assert image == b"photo"
+        return {"dish": "Rice and chicken", "kcal": 350, "protein_g": 28, "carbs_g": 32, "fat_g": 12,
+                "items": [{"name": "Rice and chicken", "portion": "1 bowl", "kcal": 350}],
+                "uncertainty": "The bowl size is estimated."}
 
     def url(self, key):
         return f"https://example.test/{key}"
@@ -265,3 +269,22 @@ def test_persona_upload_personalises_profile_food_log_and_coach_context(tmp_path
     assert context["top_restaurants"] == ["FitMeal BKK"]
     assert context["weight_trend"]["last"]["weight_kg"] == 71.3
     assert recommendation_context(None) == {"available": False}
+
+
+def test_photo_stream_reports_progress_and_logs_only_success(tmp_path):
+    with demo(tmp_path) as (client, _):
+        scan = "/food-log/photo?stream=true"
+        failed = client.post(scan, files={"file": ("not-food.jpg", b"not food", "image/jpeg")})
+        assert [json.loads(line)["type"] for line in failed.iter_lines()] == ["progress", "error"]
+        assert client.get("/food-log").json()["totals"]["protein_g"] == 50
+        response = client.post(scan, files={"file": ("meal.jpg", b"photo", "image/jpeg")})
+        assert response.headers["content-type"].startswith("application/x-ndjson")
+        analyzing, saving, done = map(json.loads, response.iter_lines())
+        assert analyzing == {"type": "progress", "stage": "analyzing"}
+        assert saving == {"type": "progress", "stage": "saving"}
+        assert done["type"] == "done"
+        assert done["meal"]["items"][0]["portion"] == "1 bowl"
+        food_log = client.get("/food-log").json()
+        assert food_log["totals"]["protein_g"] == 78
+        assert food_log["meals"][-1]["id"] == done["meal"]["id"]
+        assert "350 kcal" in client.get("/feed").json()[-1]["text"]

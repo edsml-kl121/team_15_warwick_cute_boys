@@ -8,7 +8,7 @@ const script = fs.readFileSync(require('node:path').join(__dirname, '../services
 function loadService(fetch) {
   const window = {};
   vm.runInNewContext(script, {
-    window, fetch, URL, TextDecoder, FormData,
+    window, fetch, URL, URLSearchParams, TextDecoder, FormData,
     location: { href: 'https://zippy.example/', protocol: 'https:' },
     document: { querySelector: name => name.includes('zippy-api') ? { content: '/api/' } : null },
   });
@@ -41,6 +41,23 @@ test('empty product results have no cards and a price comes from the backend', (
   ] });
   assert.equal(card.productId, 'fixture-mask');
   assert.equal(card.value, '321 THB');
+});
+
+test('photo uploads multipart data and returns the saved estimate after progress', async () => {
+  const file = new File(['photo'], 'meal.jpg', { type: 'image/jpeg' });
+  const service = loadService(async (url, options) => {
+    assert.equal(url.href, 'https://zippy.example/api/food-log/photo?session_id=session-1&stream=true');
+    assert.equal(options.body.get('file').name, 'meal.jpg');
+    return new Response([
+      '{"type":"progress","stage":"analyzing"}',
+      '{"type":"progress","stage":"saving"}',
+      '{"type":"done","meal":{"kcal":350}}',
+    ].join('\n'), { headers: { 'content-type': 'application/x-ndjson' } });
+  });
+  const stages = [];
+  const meal = await service.photo(file, 'session-1', event => stages.push(event.stage));
+  assert.deepEqual(stages, ['analyzing', 'saving']);
+  assert.equal(meal.kcal, 350);
 });
 
 test('a truncated stream and backend error reject instead of generating a fallback reply', async () => {

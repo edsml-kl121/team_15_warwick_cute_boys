@@ -135,6 +135,29 @@
     <a class="chip demo-entry" href="./?demo=ploy">Open Ploy demo</a>
   </dialog>
   <input type="file" id="meal-photo" accept="image/*" hidden>
+  <dialog class="scan-dialog" aria-labelledby="scan-title">
+    <header class="scan-header">
+      <h2 id="scan-title">Scan meal</h2>
+      <form method="dialog">
+        <button type="submit" class="ib" aria-label="Close meal scan">
+          <i class="material-icons" aria-hidden="true">close</i>
+        </button>
+      </form>
+    </header>
+    <img class="scan-preview" alt="Your meal photo">
+    <p class="scan-status" role="status"></p>
+    <section class="scan-result" hidden>
+      <div class="scan-total">
+        <h3></h3>
+        <strong class="scan-kcal"></strong>
+      </div>
+      <p class="scan-macros mut"></p>
+      <ul class="scan-items" aria-label="Estimated foods and portions"></ul>
+      <p class="scan-uncertainty mut"></p>
+      <a class="btn scan-log" href="#food">View Food log</a>
+    </section>
+    <button type="button" class="btn2 scan-retry" hidden>Choose another photo</button>
+  </dialog>
   <dialog class="order-dialog" aria-labelledby="order-title">
     <form method="dialog">
       <button type="submit" class="ib" aria-label="Close order review">

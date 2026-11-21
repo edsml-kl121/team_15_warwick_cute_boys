@@ -52,6 +52,6 @@ Keep one Backend replica. Local runs without `MONGO_URL` use scoped JSON files u
 
 `PUT /persona` imports a visitor's own health history as one JSON document (`profile`, `food_history_log`, `wearable_daily`, `workouts`, `weights`, `body_composition_scans`). The backend validates it, stores it on the guest, applies the calorie and macro targets, name, area, tastes and connected sources to the profile, and merges that day's meals into `GET /food-log`. The coach's `get_health_history` tool returns a compact summary of it, never the raw log. `GET /persona` returns the stored document.
 
-The bucket stores JPEG food images. MongoDB saves each image's object key, and the backend issues a fresh signed URL for display. Food photo analysis also requires `OPENAI_API_KEY`.
+Set `OPENAI_API_KEY` to enable meal scanning. Each scan sends a resized JPG to one vision model using the Responses API and saves the estimated foods, portions and totals. The default `FOOD_SCAN_MODEL` is `gpt-4.1-mini`. When the optional storage bucket is configured, it stores JPEG food images, MongoDB saves each image's object key, and the backend issues a fresh signed URL for display.
 
 Calls simulate results by default. For live calls in the Ploy demo set `LIVE_CALLS=1`, the Twilio and OpenAI variables from the spec, and a comma-separated `TWILIO_VERIFIED_TEST_NUMBERS` list of team-owned numbers. The backend requires the listing number to match that list. An OpenAI key enables free-form chat through the Agents SDK.

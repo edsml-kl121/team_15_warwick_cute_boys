@@ -57,7 +57,9 @@ The reference order is 199 THB plus 30 THB shipping, totaling 229 THB. An exampl
 
 Browser speech recognition supplies interim words where supported. Optionally set the `zippy-transcribe` meta tag to a separate transcription endpoint. Accept multipart `audio` and return `{"text":"…"}`. This fallback transcribes after capture ends. The current FastAPI backend has the meal photo route, but no browser transcription route.
 
-The camera uses `POST /food-log/photo?session_id=…` with multipart `file`. Add the meal summary to the session feed after storage and analysis succeed. MongoDB holds the meal and its image key. The Food Log response includes a freshly signed `photo_url` when an image is available.
+The camera uses `POST /food-log/photo?session_id=…&stream=true` with multipart `file`. The response streams NDJSON events with `type: "progress"` and `stage: "analyzing"` or `"saving"`. A terminal `done` event carries the saved `meal`, including per-food `items` and an `uncertainty` note. A terminal `error` event carries a user-facing `message`. Clients that omit `stream` receive the saved meal as regular JSON. The backend adds the summary to the session feed when it logs the meal.
+
+MongoDB holds the meal and its image key when an image is stored. The Food Log response includes a freshly signed `photo_url` when an image is available.
 
 ## Integration acceptance
 

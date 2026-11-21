@@ -177,7 +177,7 @@
           h('span', { class: 'mut small', text: `${meal.meal} · ${meal.time}` }),
           h('b', { text: meal.dish }),
           h('span', { class: 'mut small' }, icon(sourceIcon, 'font-size:12px'), sourceText(meal))),
-        h('span', { class: 'meal-num' }, h('b', { text: fmt(meal.kcal) }), h('span', { class: 'mut small', text: `${fmt(meal.protein_g)} g protein` })));
+        h('span', { class: 'meal-num' }, h('b', { text: `${meal.source === 'photo' ? '≈ ' : ''}${fmt(meal.kcal)}` }), h('span', { class: 'mut small', text: `${fmt(meal.protein_g)} g protein` })));
     }
 
     async function food() {
@@ -396,6 +396,6 @@
       return load(section, renderId, builders[page]);
     }
 
-    return { pages: PAGES, render };
+    return { pages: PAGES, render, setFoodDate(date) { foodDate = date; } };
   };
 })();
