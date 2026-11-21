@@ -146,6 +146,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `POST /food-log/photo` | Frontend uploads a meal photo |
 | `POST /chat` | Frontend receives streamed NDJSON. Regular guest chat accepts optional browser `location: {lat, lng}` for restaurant search. |
 | `GET /sessions`, `GET /sessions/{id}` | List and restore the visitor's chats, with their cards and feed cursor |
+| `DELETE /sessions/{id}` | Delete the visitor's chat history and feed for one session |
 | `GET /feed?session_id=&after=` | Frontend polls every 1–2 seconds for proactive and asynchronous items |
 | `POST /actions/buy`, `POST /actions/pay` | Frontend places a Mall order or a guest-chat Food order with `kind: "food"`, then requests payment |
 | `GET /shopee-orders/{id}` | Frontend polls order status while the PIN page is open |

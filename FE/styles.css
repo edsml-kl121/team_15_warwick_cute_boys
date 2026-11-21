@@ -198,10 +198,15 @@ button:disabled { cursor: wait; opacity: .65; }
 .history-modal.closing .history-scrim { animation: fade-out 180ms ease-in both; }
 .history-drawer header { display: flex; align-items: center; justify-content: space-between; }
 .history-drawer h2 { margin: 0; font-size: 20px; }
-.history-empty { margin: 0; color: #5c6963; font-size: 14px; }
+.history-empty, .history-status { margin: 0; color: #5c6963; font-size: 14px; }
+.history-status:empty { display: none; }
 .history-list { list-style: none; overflow: auto; margin: 0; padding: 0; }
-.history-chat { width: 100%; display: block; padding: 11px 12px; border: 0; background: transparent; border-radius: 12px; color: inherit; font-weight: 600; text-align: left; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.history-list li { display: flex; align-items: center; gap: 4px; }
+.history-chat { flex: 1; min-width: 0; display: block; padding: 11px 12px; border: 0; background: transparent; border-radius: 12px; color: inherit; font-weight: 600; text-align: left; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
 .history-chat:hover, .history-chat[aria-current="true"] { background: #e7eee9; }
+.history-delete { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 12px; background: transparent; color: #5c6963; }
+.history-delete:hover:not(:disabled) { background: #f3e5e0; color: #83514c; }
+.history-delete .material-icons { font-size: 20px; }
 .visitor-actions { display: grid; gap: 6px; }
 .visitor-actions a { text-decoration: none; }
 .visitor-actions p { margin: 0; }

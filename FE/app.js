@@ -12,6 +12,7 @@
   const voiceStatus = voiceDock.querySelector('.voice-status');
   const history = document.querySelector('.history-modal');
   const historyList = history.querySelector('.history-list');
+  const historyStatus = history.querySelector('.history-status');
   const locationButton = history.querySelector('[data-action="toggle-location"]');
   const locationLabel = locationButton.querySelector('.location-label');
   const locationHint = history.querySelector('.location-hint');
@@ -166,6 +167,7 @@
 
   function openVoice() {
     if (mode === 'voice') return finishVoice();
+    if (active.deleting) return;
     if (active.pending) return showFeedback('Wait for the current reply before sending another message.');
     navigator.vibrate?.(10);
     speaker.cancel();
@@ -625,7 +627,7 @@
   }
 
   async function requestReply(thread, message, spoken = false) {
-    if (thread.pending) return;
+    if (thread.pending || thread.deleting) return;
     thread.pending = message.id;
     const turn = spoken ? ++replyTurn : 0;
     const speaking = () => spoken && turn === replyTurn;
@@ -669,7 +671,7 @@
   }
 
   function sendMessage(text, spoken = false) {
-    if (!text || active.pending) return;
+    if (!text || active.pending || active.deleting) return;
     const thread = active;
     const id = String(thread.messages.length);
     const message = { id, role: 'user', text };
@@ -688,8 +690,17 @@
       button.type = 'button';
       button.dataset.action = 'select-chat';
       button.dataset.threadId = thread.id;
+      button.disabled = Boolean(thread.deleting);
       if (thread === active) button.setAttribute('aria-current', 'true');
-      item.append(button);
+      const remove = node('button', 'history-delete');
+      remove.type = 'button';
+      remove.dataset.action = 'delete-chat';
+      remove.dataset.threadId = thread.id;
+      remove.disabled = Boolean(thread.pending || thread.deleting);
+      remove.title = 'Delete chat';
+      remove.setAttribute('aria-label', `Delete chat “${title}”`);
+      remove.append(icon('delete_outline'));
+      item.append(button, remove);
       return item;
     }));
   }
@@ -728,6 +739,7 @@
   async function selectThread(thread) {
     try {
       await loadThread(thread);
+      if (thread.deleted || thread.deleting) return;
       active = thread;
       closeHistory();
       setMode('idle');
@@ -735,6 +747,35 @@
       checkUpdates();
     } catch (error) {
       showFeedback(error.message);
+    }
+  }
+
+  async function deleteThread(thread) {
+    if (thread.pending || thread.deleting) return;
+    if (realtime?.thread === thread) {
+      historyStatus.textContent = 'End the voice conversation before deleting this chat.';
+      return;
+    }
+    if (!confirm('Delete this chat and its messages? This can’t be undone.')) return;
+    thread.deleting = true;
+    historyStatus.textContent = 'Deleting chat…';
+    drawHistory();
+    try {
+      await service.json('sessions/' + encodeURIComponent(thread.id), undefined, 'DELETE');
+      thread.deleted = true;
+      threads = threads.filter(item => item !== thread);
+      historyStatus.textContent = 'Chat deleted.';
+    } catch (error) {
+      historyStatus.textContent = error.message;
+    } finally {
+      delete thread.deleting;
+      if (thread.deleted && thread === active) {
+        setMode('idle');
+        active = { ...newThread(), connected: true };
+        renderMessages();
+      } else {
+        drawHistory();
+      }
     }
   }
 
@@ -883,7 +924,7 @@
       if (!thread.connected && !service.demo) return;
       const query = new URLSearchParams({ session_id: thread.id, after: thread.lastFeedId || 0 });
       const items = await service.json('feed?' + query);
-      if (!Array.isArray(items)) return;
+      if (thread.deleted || !Array.isArray(items)) return;
       for (const item of items) {
         if (!Number.isInteger(item.id) || item.id <= (thread.lastFeedId || 0)) continue;
         thread.lastFeedId = item.id;
@@ -1022,6 +1063,10 @@
       const thread = threads.find(item => item.id === control.dataset.threadId);
       if (thread) selectThread(thread);
     },
+    'delete-chat': control => {
+      const thread = threads.find(item => item.id === control.dataset.threadId);
+      if (thread) deleteThread(thread);
+    },
     type: () => setMode('typing'),
     'dock-back': () => setMode('idle', true),
     'voice-cancel': () => setMode('idle', true),
@@ -1053,7 +1098,7 @@
     regenerate(control) {
       const index = Number(control.dataset.index);
       const user = active.messages[index - 1];
-      if (active.pending || index !== active.messages.length - 1 || user?.role !== 'user') return;
+      if (active.pending || active.deleting || index !== active.messages.length - 1 || user?.role !== 'user') return;
       active.messages.splice(index);
       requestReply(active, user);
     },
@@ -1164,7 +1209,7 @@
   keyboard.addEventListener('submit', event => {
     event.preventDefault();
     const text = input.value.trim();
-    if (active.pending) return;
+    if (active.pending || active.deleting) return;
     if (!text) return openVoice();
     active.draft = '';
     input.value = '';
@@ -1197,7 +1242,7 @@
       }
       if (!visitor.ready) await service.json('visitor', undefined, 'POST');
       threads = await service.json('sessions');
-      active = threads[0] || { ...newThread(), id: 'presenter', connected: true };
+      active = threads[0] || { ...newThread(), connected: true };
       await loadThread(active);
       try { pendingOrder = JSON.parse(sessionStorage.getItem(pendingOrderKey) || 'null'); } catch { pendingOrder = null; }
       ready = true;

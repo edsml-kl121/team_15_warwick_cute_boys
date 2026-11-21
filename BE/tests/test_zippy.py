@@ -1096,6 +1096,45 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         assert set(database.list_collection_names()) == set(COLLECTIONS)
 
 
+def test_delete_chat_removes_only_the_owners_timeline_and_survives_restart(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Nok"}).is_success
+        token = client.cookies["zippy_guest"]
+        owner = "guest-" + sha256(token.encode()).hexdigest()
+        for session_id in ("delete-me", "keep-me"):
+            assert client.post("/chat", headers=guest, json={"session_id": session_id, "message": "How did I sleep?"}).is_success
+        assert client.post("/chat", json={"session_id": "delete-me", "message": "How did I sleep?"}).is_success
+        photo = client.post("/food-log/photo?session_id=delete-me", headers=guest,
+                            files={"file": ("meal.jpg", b"photo", "image/jpeg")})
+        assert photo.is_success
+        assert len(client.get("/sessions/delete-me", headers=guest).json()["timeline"]) == 2
+
+        assert client.delete("/sessions/delete-me", headers={**guest, "Authorization": ""}).status_code == 401
+        scoped = client.app.state.open_visitor(owner, demo=False)
+        lock = scoped.chat_locks["delete-me"]
+        client.portal.call(lock.acquire)
+        try:
+            assert client.delete("/sessions/delete-me", headers=guest).status_code == 409
+        finally:
+            client.portal.call(lock.release)
+        assert client.delete("/sessions/delete-me", headers=guest).is_success
+        assert client.delete("/sessions/delete-me", headers=guest).is_success
+        assert client.get("/sessions/delete-me").is_success
+        assert [item["id"] for item in client.get("/sessions", headers=guest).json()] == ["keep-me"]
+        assert database.session_events.count_documents({"guest_id": owner, "session_id": "delete-me"}) == 0
+        client.portal.call(scoped.emit, "delete-me", {"text": "Late update"})
+        assert client.get("/feed?session_id=delete-me", headers=guest).json() == []
+
+    with demo(tmp_path, database=database) as (client, _):
+        client.cookies.set("zippy_guest", token)
+        assert client.get("/sessions/delete-me", headers=guest).status_code == 404
+        assert client.post("/chat", headers=guest, json={"session_id": "delete-me", "message": "Restore it?"}).status_code == 404
+        assert client.get("/sessions/keep-me", headers=guest).is_success
+        assert client.get("/food-log", headers=guest).json()["meals"][0]["id"] == photo.json()["id"]
+
+
 PERSONA = {
     "as_of": "2026-12-20T23:59:00+07:00",
     "profile": {

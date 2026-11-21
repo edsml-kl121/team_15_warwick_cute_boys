@@ -24,6 +24,8 @@ estimates without saving coordinates in the profile or chat history. The
 simulator uses Silom when the position is missing or more than 25 km from Silom.
 Ploy's scripted demo and background dinner tips use the fixture location.
 
+Chat history sends `DELETE /sessions/{id}` after confirmation. Repeating a delete succeeds. The response is `{"status":"ok"}`, or HTTP 409 while a text reply is in progress. The backend removes the session's timeline and feed. Meal logs, orders, bookings and reminders remain accessible through their own flows.
+
 ## Reference fixtures
 
 Use these sample values for offline tests and visual review. Runtime responses come from the backend. In particular, use the actual MCP product ID, current price, shop and URL for each search result.

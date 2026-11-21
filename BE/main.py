@@ -384,15 +384,27 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
              "title": next((item["message"][:140] for item in session["timeline"] if item["type"] == "turn"),
                            next((item["item"]["notify"]["title"] for item in session["timeline"]
                                  if item["type"] == "feed" and item["item"].get("notify")), "Chat"))}
-            for session_id, session in zippy.state["sessions"].items() if session.get("timeline")
+            for session_id, session in zippy.state["sessions"].items()
+            if not session.get("deleted") and session.get("timeline")
         ], key=lambda session: session["updated_at"], reverse=True)
 
     @app.get("/sessions/{session_id}", dependencies=protected)
     async def conversation(session_id: str, zippy=Depends(service)):
         session = zippy.state["sessions"].get(session_id)
-        if session is None or not re.fullmatch(SESSION_ID, session_id):
+        if session is None or session.get("deleted") or not re.fullmatch(SESSION_ID, session_id):
             raise HTTPException(404, "Conversation not found.")
         return {"timeline": session.get("timeline", []), "last_feed_id": len(session["feed"])}
+
+    @app.delete("/sessions/{session_id}", dependencies=protected)
+    async def delete_conversation(session_id: str, zippy=Depends(service)):
+        if not re.fullmatch(SESSION_ID, session_id):
+            raise HTTPException(404, "Conversation not found.")
+        async with zippy.mutation:
+            reply = zippy.chat_locks.get(session_id)
+            if reply is not None and reply.locked():
+                raise HTTPException(409, "Wait for the current reply before deleting this chat.")
+            zippy.delete_session(session_id)
+        return {"status": "ok"}
 
     @app.get("/profile", dependencies=protected)
     async def profile(zippy=Depends(service)):
@@ -548,6 +560,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     @app.post("/chat", dependencies=protected)
     async def chat(body: ChatBody, zippy=Depends(service)):
+        if zippy.session_deleted(body.session_id):
+            raise HTTPException(404, "This chat was deleted. Start a new chat.")
         message = body.message.strip()
         if not message:
             raise HTTPException(422, "Enter a message first.")
@@ -555,6 +569,9 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         async def events():
             async with zippy.chat_locks[body.session_id]:
+                if zippy.session_deleted(body.session_id):
+                    yield json.dumps({"type": "error", "message": "This chat was deleted. Start a new chat."}) + "\n"
+                    return
                 session = zippy.session(body.session_id)
                 recorded = []
                 try:
@@ -580,6 +597,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     @app.get("/feed", dependencies=protected)
     async def feed(session_id: SessionQuery = "ploy", after: int = Query(default=0, ge=0), zippy=Depends(service)):
+        if zippy.session_deleted(session_id):
+            return []
         return [item for item in zippy.state["sessions"].get(session_id, {}).get("feed", []) if item["id"] > after]
 
     @app.post("/actions/buy", dependencies=protected)
@@ -735,7 +754,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         zippy = socket.app.state.open_visitor(visitor_id(socket, demo), demo=demo)
         session_id = socket.query_params.get("session_id", "ploy")
         if (not secrets.compare_digest(token.encode(), f"Bearer {settings.token}".encode()) or zippy is None
-                or not re.fullmatch(SESSION_ID, session_id)):
+                or not re.fullmatch(SESSION_ID, session_id) or zippy.session_deleted(session_id)):
             await socket.close(code=1008)
             return
         await socket.accept()

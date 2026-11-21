@@ -86,11 +86,29 @@ class Zippy:
         task.add_done_callback(self.tasks.discard)
         return task
 
+    def session_deleted(self, session_id):
+        return self.state["sessions"].get(session_id, {}).get("deleted", False)
+
     def session(self, session_id):
+        if self.session_deleted(session_id):
+            raise LookupError("This chat was deleted. Start a new chat.")
         return self.state["sessions"].setdefault(session_id, {
             "feed": [], "history": [], "moments": [], "products": [], "places": [], "pending": None,
             "timeline": [], "updated_at": self.now().isoformat(),
         })
+
+    def delete_session(self, session_id):
+        sessions = self.state["sessions"]
+        previous = sessions.get(session_id)
+        if previous is None or (previous.get("deleted") and not previous.get("timeline")):
+            return
+        # Keep only a marker so stale clients and late updates cannot recreate the conversation.
+        sessions[session_id] = {"deleted": True, "updated_at": self.now().isoformat()}
+        try:
+            self.store.save()
+        except Exception:
+            sessions[session_id] = previous
+            raise
 
     def record_event(self, session, **event):
         timeline = session.setdefault("timeline", [])
@@ -99,14 +117,15 @@ class Zippy:
         timeline.append({"seq": len(timeline) + 1, "at": at, **event})
 
     def emit(self, session_id, *items):
-        session = self.session(session_id)
-        feed = session["feed"]
-        for item in items:
-            entry = {"id": len(feed) + 1, "at": self.now().isoformat(), "role": "assistant", **item}
-            feed.append(entry)
-            if item.get("quick_replies"):
-                session["offered"] = item["quick_replies"]
-            self.record_event(session, type="feed", item=entry)
+        if not self.session_deleted(session_id):
+            session = self.session(session_id)
+            feed = session["feed"]
+            for item in items:
+                entry = {"id": len(feed) + 1, "at": self.now().isoformat(), "role": "assistant", **item}
+                feed.append(entry)
+                if item.get("quick_replies"):
+                    session["offered"] = item["quick_replies"]
+                self.record_event(session, type="feed", item=entry)
         self.store.save()
         for item in items:
             if item.get("notify") and self.push and self.state.get("push_subscriptions"):
@@ -860,7 +879,6 @@ class Zippy:
             card = {"kind": "call", "restaurant": booking["restaurant_name"], "duration_s": duration,
                     "status": "no_answer" if status == "no_answer" else "ended", "quote": booking["quote"], "outcome": status}
             items = [{"card": card, "header_status": "online"}]
-            session = self.session(session_id)
             if status == "booked":
                 minutes = math.ceil(booking["distance_km"] * 12)
                 leave_by = after_minutes(booking["time"], -minutes - 2)
@@ -872,7 +890,8 @@ class Zippy:
                     {"text": f"Done, they'll hold it under {booking['name']}.", "card": route},
                     {"text": f"Leave by {leave_by}. I'll nudge you when it's time.", "card": reminder},
                 ]
-            else:
+            elif not self.session_deleted(session_id):
+                session = self.session(session_id)
                 called = {item["shop_id"] for item in self.state["bookings"].values() if item["session_id"] == session_id}
                 alternatives = [place for place in session["places"] if place["shop_id"] not in called]
                 opening = {"no_answer": "No answer.", "full": "They're full.", "failed": "I couldn't complete the booking."}[status]

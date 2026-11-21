@@ -12,6 +12,8 @@ Use the camera button in chat or on the Food log page to upload a meal photo (JP
 
 Read [CHAT_API.md](CHAT_API.md) for the FastAPI connection, checkout, optional transcription, and original demo values. The static preview opens with an empty conversation. Sending requires the API.
 
+In **Chat history**, select the trash icon next to a conversation and confirm to delete it. Deleting the current conversation opens a blank chat.
+
 Open `/presenter.html` or `/presentor.html` on the Caddy-served app. Enter the phone's guest display name and the presenter key, then click **Trigger** beside **Recommend food** or **Recommend an item**. The recommendation appears in the guest’s chat.
 
 ## Verification
