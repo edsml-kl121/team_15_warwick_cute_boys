@@ -37,8 +37,31 @@
     return (await send(urlFor(path), body, method, headers)).json();
   }
 
+  // Current position for "near me" restaurant searches. The scripted Ploy demo stays in Silom.
+  // Resolves null when location is denied, unavailable or slow, so chat never waits long on it.
+  const LOCATION_MAX_AGE_MS = 5 * 60 * 1000;
+  const LOCATION_WAIT_MS = 15000;
+  let lastPosition = null;
+
+  function currentLocation() {
+    if (demo || !globalThis.navigator?.geolocation) return Promise.resolve(null);
+    if (lastPosition && Date.now() - lastPosition.at < LOCATION_MAX_AGE_MS) return Promise.resolve(lastPosition.coords);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => resolve(lastPosition?.coords ?? null), LOCATION_WAIT_MS);
+      navigator.geolocation.getCurrentPosition(({ coords }) => {
+        lastPosition = { at: Date.now(), coords: { lat: coords.latitude, lng: coords.longitude } };
+        clearTimeout(timer);
+        resolve(lastPosition.coords);
+      }, () => {
+        clearTimeout(timer);
+        resolve(null);
+      }, { maximumAge: LOCATION_MAX_AGE_MS, timeout: LOCATION_WAIT_MS });
+    });
+  }
+
   async function chat(sessionId, message, onEvent) {
-    const response = await send(urlFor('chat'), { session_id: sessionId, message });
+    const here = await currentLocation();
+    const response = await send(urlFor('chat'), { session_id: sessionId, message, ...here });
     await readEvents(response, onEvent, 'chat', 'The reply was interrupted. You can retry it.');
   }
 

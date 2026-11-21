@@ -296,7 +296,8 @@ class RecommendationAgents:
         why = meal_reason(chosen, logged, wearable, profile["goals"])
         area = source.get("home_area") or {}
         lat, lng = number(area.get("lat")), number(area.get("lng"))
-        location = {"lat": lat, "lng": lng} if lat is not None and lng is not None else {}
+        home = {"lat": lat, "lng": lng} if lat is not None and lng is not None else {}
+        location = zippy.here() or home
         try:
             hits = await zippy.shopee.call("find_similar_dishes", dish=chosen["dish"], calories=chosen["kcal"],
                                            protein_g=chosen["protein_g"], limit=35, **location)

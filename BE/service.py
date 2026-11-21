@@ -45,6 +45,10 @@ class Zippy:
             "timeline": [], "updated_at": self.now().isoformat(),
         })
 
+    def here(self):
+        """The visitor's last browser location as search arguments; empty lets the simulator use Silom."""
+        return dict(self.state.get("location") or {})
+
     def record_event(self, session, **event):
         timeline = session.setdefault("timeline", [])
         at = self.now().isoformat()
@@ -201,7 +205,8 @@ class Zippy:
 
     async def find_places(self, session_id, dish, calories=None, protein_g=None):
         """Find nearby Shopee Food places for a dish and remember the top three for booking."""
-        results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
+        results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g,
+                                         limit=35, **self.here())
         by_shop = {}
         for result in results:
             place = result.get("restaurant", result)

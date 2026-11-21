@@ -877,3 +877,42 @@ def test_bucket_images_find_slugged_keys_across_extensions():
     assert image_slug("Spaghetti Bolognese (Large)") == "spaghetti-bolognese-large"
     assert asyncio.run(images.find("dishes", "Spaghetti  Bolognese")) == "https://signed.example/dishes/spaghetti-bolognese.webp"
     assert asyncio.run(images.find("restaurants", "s_missing")) is None
+
+
+def test_dish_search_uses_location_the_browser_sent_with_chat(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        response = client.post("/chat", json={"message": "hi", "lat": 13.7563, "lng": 100.5018})
+        assert [json.loads(line) for line in response.iter_lines()][-1]["type"] == "done"
+        tools, _ = coach_tools(client)
+        use_tool(client, tools, "find_similar_dishes", dish="grilled chicken")
+        search = simulator.dish_searches[-1]
+        assert (search["lat"], search["lng"]) == (13.7563, 100.5018)
+        assert client.post("/chat", json={"message": "hi", "lat": 200, "lng": 0}).status_code == 422
+
+
+def test_coach_reply_shows_only_its_last_card(tmp_path, monkeypatch):
+    import agents
+
+    class Run:
+        is_complete = True
+
+        def __init__(self, shown):
+            self.shown = shown
+
+        async def stream_events(self):
+            for kind in ("sleep_insight", "activity", "places"):
+                self.shown.put_nowait({"kind": kind})
+                yield type("Event", (), {"type": "agent_updated_stream_event"})()
+
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        coach = AgentsCoach(zippy.prompts)
+        captured = {}
+        monkeypatch.setattr(AgentsCoach, "tools", lambda self, service, session_id, shown: captured.setdefault("q", shown) and [])
+        monkeypatch.setattr(agents.Runner, "run_streamed", staticmethod(lambda *a, **k: Run(captured["q"])))
+
+        async def collect():
+            return [event async for event in coach.stream(zippy, "ploy", "how did I sleep?", [])]
+
+        events = client.portal.call(collect)
+        assert [event["card"]["kind"] for event in events if event["type"] == "card"] == ["places"]

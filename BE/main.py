@@ -57,6 +57,9 @@ class SessionBody(BaseModel):
 
 class ChatBody(SessionBody):
     message: str = Field(min_length=1, max_length=1500)
+    # The browser's current position, sent when the visitor allows location access.
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
 
 
 class BuyBody(SessionBody):
@@ -503,6 +506,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         async def events():
             async with zippy.chat_locks[body.session_id]:
                 session = zippy.session(body.session_id)
+                if body.lat is not None and body.lng is not None:
+                    zippy.state["location"] = {"lat": body.lat, "lng": body.lng}
                 recorded = []
                 try:
                     async for event in zippy.chat(body.session_id, message):

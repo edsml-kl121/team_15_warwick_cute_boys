@@ -86,12 +86,15 @@ def _closeness(actual: dict, targets: dict) -> float:
     return sum(scores) / len(scores)
 
 
+SERVICE_RADIUS_KM = 25  # every seeded restaurant is in central Bangkok
+
+
 def _here(lat: float | None, lng: float | None) -> dict:
-    return (
-        {"lat": lat, "lng": lng}
-        if lat is not None and lng is not None
-        else DEFAULT_LOCATION
-    )
+    """The searcher's position, or Silom when it is unknown or outside the Bangkok service area."""
+    if lat is None or lng is None:
+        return DEFAULT_LOCATION
+    here = {"lat": lat, "lng": lng}
+    return here if _km(here, DEFAULT_LOCATION) <= SERVICE_RADIUS_KM else DEFAULT_LOCATION
 
 
 def _validate_return_url(return_url: str) -> None:

@@ -407,3 +407,14 @@ button:disabled { cursor: wait; opacity: .65; }
 .card.pad > p { margin: 0; }
 .health-note { padding: 10px 0 0; margin: 0; border-top: 1px solid #ebe9e2; }
 .list-thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: #efdfce; }
+
+/* Wide screens: chat history stays open as a sidebar beside the app instead of a drawer. */
+@media (min-width: 900px) {
+  body { grid-template-columns: auto auto; justify-content: center; }
+  .history-modal, .history-modal:not([open]) {
+    display: block; position: static; order: -1; margin: 0; width: 290px; overflow: visible;
+  }
+  .history-scrim, .history-drawer header [data-action="close-history"], .zh [data-action="open-history"] { display: none; }
+  .history-drawer { width: 100%; animation: none; box-shadow: none; border-right: 1px solid #ebe9e2; }
+  .history-modal.closing .history-drawer { animation: none; }
+}

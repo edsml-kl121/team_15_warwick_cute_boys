@@ -332,6 +332,9 @@ class AgentsCoach:
         ), model_settings=ModelSettings(reasoning=Reasoning(effort="none")),
             tools=self.tools(service, session_id, cards))
         run = Runner.run_streamed(agent, self.input(service, session_id, message, history), max_turns=4)
+        # One card per reply keeps the chat easy to follow: tools that only read data (sleep, activity) often
+        # run before the one that answers, so show the last card the model produced.
+        last_card = None
         try:
             async for event in run.stream_events():
                 if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
@@ -339,7 +342,9 @@ class AgentsCoach:
                 if event.type == "run_item_stream_event" and event.name == "tool_called":
                     yield {"type": "tool", "name": event.item.raw_item.name}
                 while not cards.empty():
-                    yield {"type": "card", "card": cards.get_nowait()}
+                    last_card = cards.get_nowait()
+            if last_card is not None:
+                yield {"type": "card", "card": last_card}
         finally:
             if not run.is_complete:
                 run.cancel("immediate")

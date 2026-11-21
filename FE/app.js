@@ -181,6 +181,7 @@
 
   function scrollToLatest(animate = false) {
     stopChatScrollFeedback();
+    pinnedToLatest = true;
     chat.scrollTo({ top: chat.scrollHeight, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant' });
   }
 
@@ -388,19 +389,44 @@
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
     const messages = active.messages.map(createMessage);
     if (animate) messages.at(-1)?.classList.add('message-enter');
-    if (active.response?.text || active.response?.cards.length || active.response?.replies.length) {
-      messages.push(createMessage(active.response));
-    }
-    if (active.pending && !active.response?.text) {
-      const dots = node('div', 'typing-dots');
-      dots.setAttribute('role', 'status');
-      dots.setAttribute('aria-label', 'Waiting for Zippy');
-      dots.append(node('i'), node('i'), node('i'));
-      messages.push(dots);
-    }
+    if (active.pending && active.response) messages.push(createLiveReply(active.response));
     log.replaceChildren(...messages);
     dock.querySelector('.send-message').disabled = Boolean(active.pending);
     scrollToLatest(animate);
+    drawHistory(); // The sidebar stays visible on wide screens, so keep its list current.
+  }
+
+  // The reply being streamed. Its shape (text / cards / chips present) decides when it must be rebuilt;
+  // otherwise only its text is patched so photos and the avatar don't reload on every token.
+  function liveShape(reply) {
+    return `${Boolean(reply.text)}:${reply.cards.length}:${reply.replies.length}`;
+  }
+
+  function createLiveReply(reply) {
+    let element;
+    if (reply.text || reply.cards.length || reply.replies.length) {
+      element = createMessage(reply);
+    } else {
+      element = node('div', 'typing-dots');
+      element.setAttribute('role', 'status');
+      element.setAttribute('aria-label', 'Waiting for Zippy');
+      element.append(node('i'), node('i'), node('i'));
+    }
+    element.classList.add('live-reply');
+    element.dataset.shape = liveShape(reply);
+    return element;
+  }
+
+  let streamFrame = 0;
+  function scheduleStreamRender() {
+    streamFrame ||= requestAnimationFrame(() => {
+      streamFrame = 0;
+      const reply = active.response;
+      const live = log.querySelector('.live-reply');
+      if (!reply || !live) return;
+      if (live.dataset.shape !== liveShape(reply)) return live.replaceWith(createLiveReply(reply));
+      live.querySelector('.zt')?.replaceChildren(window.zippyMarkdown.render(reply.text));
+    });
   }
 
   async function requestReply(thread, message) {
@@ -413,7 +439,7 @@
     try {
       await service.chat(thread.id, message.text, event => {
         applyReply(reply, event);
-        if (thread === active) renderMessages();
+        if (thread === active) scheduleStreamRender();
       });
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
       thread.messages.push(reply);
@@ -424,7 +450,7 @@
     } finally {
       delete thread.pending;
       delete thread.response;
-      if (thread === active) renderMessages(true);
+      if (thread === active) renderMessages(); // No enter animation: the reply is already on screen.
     }
   }
 
@@ -447,6 +473,7 @@
   }
 
   function drawHistory() {
+    history.querySelector('.presenter-link').href = `./presenter.html?session=${encodeURIComponent(active.id)}`;
     history.querySelector('.history-empty').hidden = threads.length > 0;
     historyList.replaceChildren(...threads.map(thread => {
       const item = node('li');
@@ -461,9 +488,11 @@
     }));
   }
 
+  const wideLayout = window.matchMedia('(min-width: 900px)'); // Matches the sidebar breakpoint in styles.css.
+
   function openHistory() {
+    if (wideLayout.matches) return; // Already shown as a sidebar.
     setMode('idle');
-    history.querySelector('.presenter-link').href = `./presenter.html?session=${encodeURIComponent(active.id)}`;
     drawHistory();
     push.refresh();
     history.showModal();
@@ -999,9 +1028,9 @@
   let chatHeight = chat.clientHeight;
   chat.addEventListener('scroll', () => {
     if (chat.clientHeight !== chatHeight) return; // Caused by the resize, not by the person scrolling.
-    pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
     const now = performance.now();
-    if (now - lastUserScroll > SCROLL_IDLE_MS) return;
+    if (now - lastUserScroll > SCROLL_IDLE_MS) return; // Programmatic scroll (e.g. smooth scroll on send).
+    pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
     lastUserScroll = now;
     const top = topChatMessage();
     if (top === messageAtFade) return;

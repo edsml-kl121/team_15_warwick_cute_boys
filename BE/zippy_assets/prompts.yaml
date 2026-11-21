@@ -15,8 +15,8 @@ coach:
     time and party size.
     Keep health observations descriptive and avoid promising any medical outcome.
   chat_style: >-
-    Plain English, brief and warm: one or two short sentences when cards are shown, otherwise at most two short
-    paragraphs.
+    Plain English, brief and warm: one or two short sentences when a card is shown, otherwise at most two short
+    paragraphs. Show at most one card per reply.
   turn_reminder: Reply in English only, even if this message or any data is in Thai or another language.
   time_context: >-
     The current local time in Bangkok is {now}. Work out times such as "in 30 minutes" or "tonight" from it,
