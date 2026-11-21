@@ -17,6 +17,8 @@ curl -fsS -H 'Authorization: Bearer local-zippy' http://localhost:8080/today
 
 The example environment uses the team's hosted Shopee simulator. Set `SHOPEE_MCP_URL=http://localhost:8090/mcp` for your own local copy. Tests inject a fake and require no services. The local development token is `local-zippy`.
 
+From the repository root, run `docker compose build backend` to verify the container. The build imports `main:app` from the packaged files before producing an image.
+
 On Railway, set a separate shared `API_TOKEN` in Backend → Variables and give the frontend server the same value. Set `FRONTEND_ORIGIN` to the deployed frontend's origin. Use Railway's injected `PORT` and the backend image's default listen address. The local `.env` stays out of Git and the Docker image.
 
 Use `DEMO_NOW` to set the starting clock in Bangkok. The default is 07:02 on 21 November 2026. The demo reset only cancels unpaid orders created in that run.
