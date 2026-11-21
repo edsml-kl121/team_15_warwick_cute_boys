@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zippy implementation map</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <header>
+    <nav aria-label="Course materials"><a href="../lessons/0001-trace-a-zippy-chat-turn.html">Chat lesson</a><a href="../RESOURCES.md">Sources</a></nav>
+    <h1>Zippy implementation map</h1>
+    <p>Use the visible behavior to choose a starting file. The browser handles presentation, FastAPI coordinates workflows, and the Shopee simulator supplies catalog and checkout data.</p>
+  </header>
+
+  <section>
+    <h2>Where to look</h2>
+    <dl>
+      <dt>Chat and cards</dt>
+      <dd><code>requestReply</code> and <code>applyReply</code> bind the UI to the event stream. <code>readEvents</code> decodes NDJSON and <code>cards</code> adapts payloads for display. <a href="../FE/app.js">app.js</a> · <a href="../FE/services.js">services.js</a></dd>
+      <dt>Routes and workflow</dt>
+      <dd><code>create_app</code> wires dependencies and scopes requests to a visitor’s service. <code>Zippy</code> owns session state, scripted branches, order and booking rules, and event publication. <a href="../BE/main.py">main.py</a> · <a href="../BE/service.py">service.py</a></dd>
+      <dt>Coach and prompts</dt>
+      <dd><code>AgentsCoach.stream</code> calls the model-backed coach with tools for reading health context and emitting selected cards. <code>Prompts</code> validates required YAML placeholders at startup. <a href="../BE/integrations.py">integrations.py</a> · <a href="../BE/zippy_assets/prompts.yaml">prompts.yaml</a></dd>
+      <dt>Eye mask checkout</dt>
+      <dd><code>buy</code> prepares an unpaid order using the previously compared product ID. <code>payment_url</code> requests the simulator’s approval page. Ploy enters her PIN there. <code>order_status</code> checks the simulator’s status and emits the receipt and reminder. <a href="../BE/service.py">Workflow</a> · <a href="../MCP/app/mcp_server.py">Shopee tools</a> · <a href="../MCP/app/main.py">Simulator HTTP routes</a></dd>
+      <dt>Dinner and reservations</dt>
+      <dd><code>proactive</code> prepares the dinner moment. The shop listings come from Shopee Food. After Ploy agrees, <code>book</code> creates the booking and the phone adapter handles the call. <code>finish_call</code> publishes the outcome and determines the follow-up. The backend can use a demo adapter or Twilio for configured live demo calls. <a href="../BE/service.py">Dinner and booking flow</a> · <a href="../BE/telephony.py">Phone adapters and media bridge</a></dd>
+      <dt>Notifications and reminders</dt>
+      <dd><code>emit</code> persists feed items with increasing IDs. The browser polls for items after its last ID. For a notification with a subscribed device and push configured, the backend can also send Web Push. The backend checks for due reminders in its lifespan task. <a href="../BE/service.py">Feed and reminders</a> · <a href="../BE/main.py">Scheduler and feed route</a> · <a href="../FE/sw.js">Service worker</a></dd>
+      <dt>Visitor data and meal photos</dt>
+      <dd><code>VisitorStores</code> opens guest-scoped stores, using MongoDB when configured and JSON locally otherwise. <code>put_persona</code> imports health history and updates the profile. <code>scan_meal</code> uses a photo adapter and persists the estimate. For stored photos the backend retains the object key and signs a URL on read. <a href="../BE/storage.py">Storage</a> · <a href="../BE/main.py">Import and upload routes</a> · <a href="../BE/persona.py">History mapping</a></dd>
+      <dt>Presenter recommendations</dt>
+      <dd>The presenter can request a food or item recommendation for a guest. <code>RecommendationAgents</code> builds candidates from the food catalog or recent wellness signals, then queries the relevant Shopee tools. <code>Zippy.recommend</code> publishes the cards through the feed. <a href="recommendation-agent-architecture.html">Architecture map</a> · <a href="recommendation-data-sources.html">Bucket keys and fallback rules</a></dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>How the code grew</h2>
+    <p>The Git log shows the demo spec first, then the Shopee simulator and backend workflows, then the browser chat. Guest sessions, dashboards and presenter controls followed. Later commits added history import, meal photo logging and web push.</p>
+    <pre><code>git log --first-parent --reverse --oneline</code></pre>
+    <p>Compare that history with the <a href="../ZIPPY_SPEC.md#6-build-order">intended build order</a>. For example, the spec describes a cron job calling <code>/proactive</code>. The checked-in <a href="../CRON/job.py">cron script</a> currently only prints a timestamp. The backend implements <code>/proactive</code> and presenter-triggered moments separately. <a href="../BE/main.py">Trigger routes</a></p>
+  </section>
+
+  <section>
+    <h2>Three terms worth remembering</h2>
+    <dl>
+      <dt>NDJSON</dt>
+      <dd>One JSON object per line. A chat response can carry text fragments, cards and quick replies as they become available.</dd>
+      <dt>Feed</dt>
+      <dd>Persisted events such as a proactive insight, a booking update or a receipt. Polling with <code>after</code> fetches newer items.</dd>
+      <dt>MCP</dt>
+      <dd>Model Context Protocol. Zippy’s backend uses it to call named tools on the separate Shopee simulator.</dd>
+    </dl>
+    <p><a href="../ZIPPY_SPEC.md#5-contracts">API and card contracts</a> · <a href="../BE/README.md">Backend setup</a> · <a href="../FE/README.md">Frontend setup</a> · <a href="../MCP/README.md">Simulator setup</a></p>
+  </section>
+</main>
+</body>
+</html>

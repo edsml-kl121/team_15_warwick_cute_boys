@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trace a Zippy chat turn</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <nav aria-label="Course materials"><a href="../reference/zippy-implementation.html">Repository map</a><a href="../MISSION.md">Learning mission</a></nav>
+    <p class="meta">Lesson 1 · 8 minutes</p>
+    <h1>Trace a Zippy chat turn</h1>
+    <p>Start with Ploy’s <strong>Show me options</strong> button. By the end, you’ll be able to find where Zippy gets the eye mask’s price and where the browser turns it into a card.</p>
+  </header>
+
+  <section>
+    <h2>Follow the price</h2>
+    <figure>
+      <ol>
+        <li><strong>Browser.</strong> <code>requestReply</code> streams the response to <code>applyReply</code>. The request sends <code>session_id</code> and <code>message</code> to <code>/api/chat</code>. Caddy strips <code>/api</code> and adds the server’s API token. <a href="../FE/app.js">Browser code</a> · <a href="../FE/Caddyfile">Proxy</a></li>
+        <li><strong>FastAPI.</strong> The visitor cookie scopes the service and the session ID selects the conversation. The <code>/chat</code> handler locks that conversation, writes one JSON event per line, saves the completed turn and sends <code>done</code>. <a href="../BE/main.py">Route</a></li>
+        <li><strong>Business logic.</strong> In <code>Zippy.chat</code>, the exact reply lands in the scripted shopping branch. It calls Shopee MCP’s <code>search_products</code>, copies fields like <code>price_thb</code> from the results, stores the comparison in the session and emits a <code>product_compare</code> card. <a href="../BE/service.py">Service</a> · <a href="../MCP/app/mcp_server.py">Simulator tools</a></li>
+        <li><strong>Browser again.</strong> <code>readEvents</code> buffers partial lines. <code>applyReply</code> hands the card to <code>productCards</code>, which formats <code>price_thb</code> for display. <a href="../FE/services.js">Stream parser and card adapter</a> · <a href="../FE/app.js">Reply handling</a></li>
+      </ol>
+      <figcaption>Read the <a href="../FE/CHAT_API.md#chat-and-shopping">chat API handoff</a> alongside the code. It names the request fields and stream events you’ll see at the boundary.</figcaption>
+    </figure>
+    <p>Now try <strong>How did I sleep?</strong> in your head. With AI enabled, the message can reach <code>AgentsCoach.stream</code>, whose sleep tool calls <code>sleep_card()</code>. With AI disabled, the sleep keyword branch calls the same builder directly. Both paths can produce a <code>sleep_insight</code> card. <a href="../BE/integrations.py">Coach tools</a> · <a href="../BE/service.py">Fallback and card builder</a></p>
+  </section>
+
+  <section>
+    <h2>Check your mental model</h2>
+    <p>Answer from memory, then reopen the linked code to see if you can point to the exact function.</p>
+    <fieldset data-quiz>
+      <legend>Where does the comparison price come from?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="Check productCards. The browser formats the price it was given.">Browser card defaults</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. Zippy.chat copies price_thb from the rows returned by search_products.">Shopee search results</button>
+        <button type="button" aria-pressed="false" data-feedback="Check the exact-match branch. It calls Shopee directly before the coach fallback.">Coach prompt settings</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <fieldset data-quiz>
+      <legend>What does the browser call when Ploy taps Buy?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="Correct. reviewOrder sends the selected product ID to actions/buy. The result opens the order review.">The buy route</button>
+        <button type="button" aria-pressed="false" data-feedback="Pay is the next explicit action. Buy opens an order review first.">The pay route</button>
+        <button type="button" aria-pressed="false" data-feedback="Chat produced the comparison. From that card, Buy calls actions/buy.">The chat route</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <fieldset data-quiz>
+      <legend>Where does the receipt arrive after approval is verified?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="The chat stream carries the reply to a submitted message. Order status emits the receipt separately.">The chat stream</button>
+        <button type="button" aria-pressed="false" data-feedback="The pay request returns the URL for PIN entry. The receipt arrives after status verification.">The pay response</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. order_status calls emit, which saves a payment_status card for the browser’s feed poll.">The feed poll</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <details>
+      <summary>Answer key</summary>
+      <p>Shopee search results → the buy route → the feed poll. See <code>Zippy.chat</code>, <code>reviewOrder</code> and <code>Zippy.order_status</code>.</p>
+    </details>
+  </section>
+
+  <section>
+    <h2>Confirm it with a test</h2>
+    <p>Read <code>test_sleep_and_checkout</code> and find the assertions for the 199 THB comparison, 229 THB order and single payment receipt. Its fake simulator lets the test check the whole backend handoff without a payment. For a browser-side check, run the following from the repository root. <a href="../BE/tests/test_zippy.py">Backend scenario</a> · <a href="../FE/tests/services.test.cjs">Browser tests</a></p>
+    <pre><code>node --test FE/tests/services.test.cjs</code></pre>
+    <p>Tomorrow, try reconstructing the four hops from memory. If any hop is fuzzy, ask me to walk through that function with you.</p>
+  </section>
+  <footer><a href="0002-trace-the-recommendation-bucket.html">Next lesson · Trace the recommendation bucket</a> · <a href="../reference/zippy-implementation.html">Repository map</a></footer>
+</main>
+</body>
+</html>

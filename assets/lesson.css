@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light;
+  font: 17px/1.65 system-ui, sans-serif;
+  color: #1c2b26;
+  background: #f8f6ef;
+  --accent: #235845;
+  --rule: #c9d2c7;
+}
+
+body { margin: 0; }
+main { max-width: 48rem; margin-inline: auto; padding: 2.5rem clamp(1.15rem, 5vw, 4rem) 4rem; }
+header { border-top: 4px solid var(--accent); padding-top: 1rem; }
+nav, .meta, footer { font-size: .88rem; color: #43574d; }
+nav a + a { margin-left: 1rem; }
+h1, h2 { font-family: Georgia, serif; font-weight: 500; line-height: 1.1; }
+h1 { font-size: clamp(2.5rem, 7vw, 4.3rem); margin-block: .35em .28em; letter-spacing: -.035em; }
+h2 { font-size: 1.9rem; margin-top: 1.65em; }
+h3 { font-size: 1rem; margin-bottom: .5rem; }
+p, ol, ul { margin-block: .7rem; }
+li + li { margin-top: .4rem; }
+a { color: var(--accent); text-underline-offset: .16em; }
+code { font-size: .88em; overflow-wrap: anywhere; }
+pre { padding: 1rem; background: #eaf0e8; border-left: 3px solid var(--accent); overflow-x: auto; }
+pre code { overflow-wrap: normal; }
+figure { margin: 1.5rem 0; padding: 1rem 1.2rem; border: 1px solid var(--rule); }
+figcaption { font-size: .9rem; color: #43574d; margin-top: .7rem; }
+.flow-step { padding: .55rem .8rem; background: #eaf0e8; border-left: 3px solid var(--accent); }
+.flow-arrow { margin-block: .25rem; text-align: center; color: var(--accent); }
+.flow-branches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.flow-branch { padding: .65rem .8rem; border: 1px solid var(--rule); }
+.flow-branch h3 { margin-top: 0; }
+.flow-branch ol { padding-left: 1.3rem; }
+@media (max-width: 32rem) {
+  .flow-branches { grid-template-columns: 1fr; }
+}
+fieldset { border: 1px solid var(--rule); margin: 1.25rem 0; padding: .8rem 1.1rem 1rem; }
+legend { font-weight: 650; padding-inline: .4rem; }
+.choices { display: flex; flex-wrap: wrap; gap: .45rem; }
+button { font: inherit; color: var(--accent); background: #fff; border: 1px solid var(--accent); border-radius: .25rem; padding: .35em .7em; cursor: pointer; }
+button:hover, button[data-selected] { background: #dbeade; }
+.feedback { margin-bottom: 0; }
+.feedback:empty { display: none; }
+details { margin-block: 1rem; }
+summary { cursor: pointer; font-weight: 600; }
+dt { font-weight: 650; margin-top: .8rem; }
+dd { margin-left: 0; }
+footer { border-top: 1px solid var(--rule); margin-top: 2rem; padding-top: 1rem; }
+@media print {
+  :root { font-size: 11pt; background: #fff; color: #000; }
+  main { max-width: none; padding: 0; }
+  nav, .choices { display: none; }
+  h2, h3, dt { break-after: avoid; }
+  figure, fieldset { break-inside: avoid; }
+}

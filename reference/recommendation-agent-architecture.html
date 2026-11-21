@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recommendation agent architecture</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <header>
+    <nav aria-label="Course materials"><a href="../lessons/0004-trace-the-recommendation-agents.html">Agent lesson</a><a href="zippy-implementation.html">Repository map</a></nav>
+    <h1>Recommendation agent architecture</h1>
+    <p>Both presenter actions share guest context and chat delivery. Each branch builds its own candidates and calls a different Shopee tool.</p>
+  </header>
+
+  <figure aria-labelledby="flow-caption">
+    <div class="flow-step"><strong>Presenter → FastAPI</strong><br><code>POST /presenter/trigger</code> with <code>guest_name</code>, <code>agent</code> and the <code>X-Presenter-Key</code> header.</div>
+    <div class="flow-arrow" aria-hidden="true">↓</div>
+    <div class="flow-step"><strong>One run per matching guest</strong><br><code>Zippy.recommend</code> → <code>RecommendationAgents.run</code> → <code>load_recommendation_context</code></div>
+    <div class="flow-arrow" aria-hidden="true">↓</div>
+    <div class="flow-branches">
+      <section class="flow-branch">
+        <h3>Food</h3>
+        <ol>
+          <li>Read the S3 food catalog and rank meals.</li>
+          <li>Choose a meal from the shortlist.</li>
+          <li>Call Shopee Food <code>find_similar_dishes</code>.</li>
+          <li>Build a <code>meal</code> card and, when listings fit, a <code>places</code> card.</li>
+        </ol>
+      </section>
+      <section class="flow-branch">
+        <h3>Item</h3>
+        <ol>
+          <li>Build search ideas from sleep and activity signals.</li>
+          <li>Choose a search idea from the shortlist.</li>
+          <li>Call Shopee Mall <code>search_products</code>.</li>
+          <li>Build a <code>product_compare</code> card and keep its product IDs for Buy.</li>
+        </ol>
+      </section>
+    </div>
+    <div class="flow-arrow" aria-hidden="true">↓</div>
+    <div class="flow-step"><strong>Shared delivery</strong><br><code>Zippy.emit</code> → persisted session feed → guest chat via <code>GET /feed</code>, with optional Web Push.</div>
+    <figcaption id="flow-caption">The shared path surrounds the food and item branches. <a href="../BE/main.py">Entry point</a> · <a href="../BE/recommendations.py">Branches</a> · <a href="../BE/service.py">Delivery</a></figcaption>
+  </figure>
+
+  <section>
+    <h2>Where each decision lives</h2>
+    <dl>
+      <dt>Guest and session</dt>
+      <dd><code>presenter_trigger</code> checks the presenter key. It matches display names case-insensitively, then runs once per matching guest ID. Each run targets that guest’s most recently updated session, with <code>presenter</code> as the default. <a href="../BE/main.py">Presenter route</a> · <a href="../BE/storage.py">Guest lookup</a></dd>
+      <dt>Data and selection</dt>
+      <dd><code>load_recommendation_context</code> refreshes MongoDB data by guest ID and can load a bucket persona if history is missing. <code>choose</code> uses the first candidate without a model. With a model configured, OpenAI returns an index into the shortlist and the backend validates it. The prompts are <code>recommendation.food</code> and <code>recommendation.item</code>. <a href="../BE/recommendations.py">Context and choice</a> · <a href="../BE/zippy_assets/prompts.yaml">Prompts</a></dd>
+      <dt>Food candidates and listings</dt>
+      <dd><code>food_candidates</code> filters and ranks up to 12 catalog meals using goals, logged meals, preferences, and available allergen tags. After selection, <code>food</code> searches Shopee Food and keeps up to three distinct restaurants within budget. The restaurant prices come from the Shopee results. <a href="../BE/recommendations.py">Food implementation</a></dd>
+      <dt>Item candidates and listings</dt>
+      <dd><code>item</code> can suggest an eye mask for short sleep or a foam roller when recent activity meets the goal. It can use Ploy’s demo sleep or offer a general eye-mask suggestion. Shopee Mall supplies product facts. The backend takes up to four results, sorting them by rating descending and then price ascending. <a href="../BE/recommendations.py">Item implementation</a></dd>
+      <dt>Publishing and rendering</dt>
+      <dd><code>Zippy.recommend</code> allows one recommendation at a time per guest and guards against publishing after a guest reset. It saves item products to the session for the existing Buy route and emits a notification plus cards. The browser polls the feed and maps card kinds to UI. Push can deliver the notification to subscribed devices. <a href="../BE/service.py">Service</a> · <a href="../FE/app.js">Feed polling</a> · <a href="../FE/services.js">Card mapping</a></dd>
+    </dl>
+  </section>
+  <footer><a href="recommendation-data-sources.html">Data source reference</a> · <a href="reusable-storage-functions.html">Reusable storage functions</a></footer>
+</main>
+</body>
+</html>

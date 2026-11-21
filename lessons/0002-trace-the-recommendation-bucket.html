@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trace the recommendation bucket</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <nav aria-label="Course materials"><a href="0001-trace-a-zippy-chat-turn.html">Chat lesson</a><a href="../reference/recommendation-data-sources.html">Data source reference</a></nav>
+    <p class="meta">Lesson 2 · 5 minutes</p>
+    <h1>Trace the recommendation bucket</h1>
+    <p>Predict which storage calls happen when the presenter clicks <strong>Recommend food</strong> or <strong>Recommend an item</strong>.</p>
+  </header>
+
+  <section>
+    <h2>Follow the branch</h2>
+    <ol>
+      <li><strong>Startup.</strong> FastAPI selects <code>RECOMMENDATION_BUCKET</code> or falls back to <code>S3_BUCKET</code>. It uses the configured S3 endpoint and can reuse the meal-photo S3 client when the bucket matches. <a href="../BE/main.py">Startup code</a> · <a href="../BE/README.md#guest-storage-on-railway">Railway variables</a></li>
+      <li><strong>Presenter click.</strong> <code>POST /presenter/trigger</code> receives a guest name and an <code>agent</code> of <code>food</code> or <code>item</code>. The backend chooses the guest’s latest chat and runs the corresponding branch. <a href="../FE/presenter.js">Presenter controls</a> · <a href="../BE/main.py">Route</a></li>
+      <li><strong>Persona.</strong> <code>load_recommendation_context</code> starts with guest state and refreshes the guest’s profile, persona and meals from MongoDB when available. If no persona is available, the configured bucket adapter looks for a unique display-name match in the dataset. <a href="../BE/recommendations.py">Read <code>load_recommendation_context</code></a></li>
+      <li><strong>Food or item.</strong> Food always needs the bucket catalog <code>body_data/food_db.json</code>. Item uses wearable signals from the selected persona. It can use demo sleep in Ploy mode, or offer a general suggestion when there is no qualifying signal. Shopee MCP supplies the restaurant listings or products. <a href="../BE/recommendations.py">Read <code>food</code> and <code>item</code></a></li>
+    </ol>
+    <p>The bucket adapter reads JSON via <code>get_object</code> and caches each successful object read for five minutes per backend process. Two requests can use the same JSON with only one object download. <a href="../BE/recommendations.py">Read <code>BucketRecommendationData.read</code></a></p>
+  </section>
+
+  <section>
+    <h2>Predict the source</h2>
+    <fieldset data-quiz>
+      <legend>A guest imported their history. What still comes from the bucket when you run the food agent?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="The guest already has imported history, so the name lookup is skipped.">The persona index</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. food() reads body_data/food_db.json even when run() already has a persona.">The food catalog</button>
+        <button type="button" aria-pressed="false" data-feedback="The existing persona supplies wearable history.">The wearable history</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <fieldset data-quiz>
+      <legend>An imported persona has recent short sleep. Where does the item agent get its sleep signal?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="Correct. load_recommendation_context() takes the imported persona from MongoDB or guest state and derives the signal with wearable_summary().">The imported persona</button>
+        <button type="button" aria-pressed="false" data-feedback="The demo fixture is a fallback in Ploy mode when wearable signals are absent.">The demo fixture</button>
+        <button type="button" aria-pressed="false" data-feedback="The signal comes from the imported persona. Shopee supplies product listings later.">The Shopee response</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <details>
+      <summary>Answer key</summary>
+      <p>The food catalog and the imported persona. The condition in <code>load_recommendation_context</code> controls persona lookup. The catalog read lives inside <code>food</code>.</p>
+    </details>
+  </section>
+
+  <section>
+    <h2>Use the test to tell what’s proven</h2>
+    <p>Open <code>test_presenter_agents_use_guest_data_and_publish_search_results</code>. Its fake bucket implements <code>get_object</code> and <code>list_objects_v2</code>. Predict why Krit’s 5.5 hours appears in the item recommendation even though another persona has 15 hours, then read the persona ID filter to check. A passing test confirms the code follows the intended data path. A deployed read also depends on which code is running, the service’s bucket settings, and the objects it can access. <a href="../BE/tests/test_zippy.py">Primary reading · Presenter agent test</a></p>
+    <p>Ask me to walk through the persona match or cache if you want to follow an individual read.</p>
+  </section>
+  <footer><a href="0003-reuse-the-storage-functions.html">Next lesson · Reuse the storage functions</a> · <a href="../reference/recommendation-data-sources.html">Data source reference</a></footer>
+</main>
+</body>
+</html>
