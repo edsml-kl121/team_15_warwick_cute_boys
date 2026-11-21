@@ -30,6 +30,10 @@
   const onboardingForm = onboarding.querySelector('form');
   const pendingOrderKey = service.demo ? 'zippy-ploy-pending-order' : 'zippy-guest-pending-order';
   const HEADER_STATUS = { online: 'Online', calling: 'Calling…', in_call: 'On a call' };
+  const SHOPEE_LOGOS = new Map([
+    ['Shopee Mall', './assets/shopee-mall.png'],
+    ['Shopee Food', './assets/shopee-food.png'],
+  ]);
   let threads = [];
   let active = newThread();
   let ready = false;
@@ -356,11 +360,23 @@
     return img;
   }
 
+  function cardChip(label, className) {
+    const logo = SHOPEE_LOGOS.get(label);
+    if (!logo) return node('span', className, label);
+    const chip = node('span', 'shp');
+    const image = node('img', 'shp-logo');
+    image.alt = label;
+    image.addEventListener('error', () => { chip.textContent = label; }, { once: true });
+    image.src = logo;
+    chip.append(image);
+    return chip;
+  }
+
   function cardHeader(data) {
     const head = node('div', 'card-head');
     if (data.icon) head.append(icon(data.icon, 'card-icon'));
     head.append(node('h2', '', data.title));
-    if (data.source === 'shopee') head.append(node('span', 'shp', data.sourceLabel || 'Shopee'));
+    if (data.source === 'shopee') head.append(cardChip(data.sourceLabel || 'Shopee', 'shp'));
     return head;
   }
 
@@ -433,7 +449,7 @@
     }
     if (data.chips?.length) {
       const chips = node('div', 'card-chips');
-      for (const text of data.chips) if (typeof text === 'string') chips.append(node('span', 'tag', text));
+      for (const text of data.chips) if (typeof text === 'string') chips.append(cardChip(text, 'tag'));
       card.append(chips);
     }
     const image = remoteImage(data.imageUrl, 'result-image');
