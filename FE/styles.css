@@ -80,6 +80,13 @@ button:disabled { cursor: wait; opacity: .65; }
 .card-group.carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
 .carousel .result-card { flex: 0 0 min(260px, 83%); scroll-snap-align: start; }
 .quick-replies { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash-link { flex: none; align-self: center; display: inline-flex; align-items: center; height: 30px; margin: 8px 0 0; padding: 0 8px 0 14px; border: 1px solid #ebe9e2; border-radius: 999px; background: #fff; color: #151c27; font-size: 13px; font-weight: 700; text-decoration: none; }
+.dash-link .material-icons { font-size: 18px; color: #717975; }
+.msg-actions { display: flex; gap: 2px; margin-left: 30px; }
+.msg-actions button { width: 32px; height: 32px; border: none; background: transparent; display: grid; place-items: center; cursor: pointer; color: #717975; border-radius: 999px; }
+.msg-actions button:active { opacity: .7; }
+.msg-actions button[aria-pressed="true"] { color: #3a6758; }
+.msg-actions .material-icons { font-size: 16px; }
 .result-card > a { text-decoration: none; }
 
 .dock { display: block; padding: 6px 14px max(22px, env(safe-area-inset-bottom)); min-height: 92px; }
@@ -243,7 +250,7 @@ button:disabled { cursor: wait; opacity: .65; }
 /* Header status, pages and navigation */
 .brand > div { display: flex; flex-direction: column; line-height: 1.1; }
 .header-status { font-size: 11px; font-weight: 700; color: #3a6758; }
-.ph:not([data-view="chat"]) > .zh, .ph:not([data-view="chat"]) > .chat, .ph:not([data-view="chat"]) > .dock { display: none; }
+.ph:not([data-view="chat"]) > .zh, .ph:not([data-view="chat"]) > .dash-link,.ph:not([data-view="chat"]) > .chat, .ph:not([data-view="chat"]) > .dock { display: none; }
 .page { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 12px; }
 .ph[data-nav-dir="forward"] > .page:not([hidden]) { animation: nav-forward 260ms cubic-bezier(.2, .7, .3, 1) both; }
 .ph[data-nav-dir="back"] > .page:not([hidden]), .ph[data-nav-dir="back"][data-view="chat"] > .chat { animation: nav-back 260ms cubic-bezier(.2, .7, .3, 1) both; }
@@ -349,16 +356,6 @@ button:disabled { cursor: wait; opacity: .65; }
 .demo-controls[open] { display: flex; flex-wrap: wrap; gap: 6px; }
 .demo-controls[open] summary { width: 100%; }
 .history-list { flex: 1; min-height: 0; }
-
-/* Lock screen notification */
-.lock { background: linear-gradient(170deg, #1b2a33 0%, #24443b 55%, #3a6758 100%); color: #fff; }
-.nt { margin: 0 10px; padding: 12px 14px; border-radius: 24px; background: #fbfaf7eb; color: #151c27; display: flex; gap: 10px; align-items: flex-start; box-shadow: 0 8px 24px #0000002e; border: 0; text-align: left; font-family: inherit; cursor: pointer; }
-.nt .av { width: 36px; height: 36px; }
-.lock-screen { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: stretch; padding-top: 70px; animation: fade-in 220ms ease-out both; }
-.lock-date, .lock-time { margin: 0; text-align: center; }
-.lock-date { font-weight: 600; font-size: 16px; }
-.lock-time { font-size: 80px; line-height: 1; font-weight: 600; letter-spacing: -2px; margin-bottom: 36px; }
-.lock-screen .nt span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 19px; font-weight: 600; }
 
 /* Richer chat cards */
 .card-head { display: flex; align-items: center; gap: 8px; }

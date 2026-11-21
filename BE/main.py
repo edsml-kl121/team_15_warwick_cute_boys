@@ -97,7 +97,6 @@ class Preferences(BaseModel):
     food: str = Field(max_length=240)
     home: str = Field(max_length=240)
     work: str = Field(max_length=240)
-    budget_thb: int = Field(gt=0, le=10000)
 
 
 class Profile(BaseModel):
@@ -134,7 +133,6 @@ class PresenterTrigger(BaseModel):
 class Onboarding(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     food: Annotated[str, StringConstraints(strip_whitespace=True, max_length=240)] = ""
-    budget_thb: int = Field(default=300, gt=0, le=10000)
 
 
 def visitor_mode(request):
@@ -345,7 +343,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             profile = {
                 "name": body.name, "location": "", "connections": [],
                 "member_since": datetime.now(timezone.utc).strftime("%b %Y"),
-                "preferences": {"food": body.food, "home": "", "work": "", "budget_thb": body.budget_thb},
+                "preferences": {"food": body.food, "home": "", "work": ""},
             }
         token = secrets.token_urlsafe(32)
         owner = ("demo-" if demo else "guest-") + sha256(token.encode()).hexdigest()

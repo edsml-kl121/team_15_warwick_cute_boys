@@ -118,7 +118,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 
 ### Dinner and booking
 
-1. At 18:15, use Ploy's protein gap, tastes and budget to show one meal and a short reason via `show_meal`. Call `find_similar_dishes` with the dish, calories and protein. Rank by protein, then distance, then price, and call `show_places`. Call `get_activity_today` and suggest walking when activity is low.
+1. At 18:15, use Ploy's protein gap and tastes to show one meal and a short reason via `show_meal`. Call `find_similar_dishes` with the dish, calories and protein. Rank by protein, then distance, then price, and call `show_places`. Call `get_activity_today` and suggest walking when activity is low.
 2. After Ploy agrees, `book_table_by_phone(restaurant_id, party_size, time)` uses `get_menu` for the name, phone and location. Create a `calling` booking, dial and return immediately. The header shows **Calling…**, then **On a call** when the media stream starts and the booking becomes `in_call`.
 3. Dial with Twilio `calls.create` using `<Connect><Stream>`, `<Parameter>` values for purpose and booking ID, a 40-second ring timeout and answering-machine detection. The call agent speaks first, asks for one at 19:00 under Ploy and uses `report_booking_result(outcome, confirmed_time, quote, notes)` once. The outcomes are `booked`, `full` and `other`. Capture the callee's words, say goodbye and request `end_call`.
 4. Treat Twilio's `no-answer`, `busy`, `failed` or a detected machine as `no_answer`. Every completed outcome adds a feed card with the restaurant, result, available `CallDuration` and quote, and sends an update to the coach.
@@ -137,7 +137,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | Route | Caller and behavior |
 |---|---|
 | `GET /health` | Railway health check, returns `{"status":"ok"}` |
-| `GET /visitor`, `POST /visitor` | Check for a guest cookie or create a guest profile from a display name and optional food preferences and budget |
+| `GET /visitor`, `POST /visitor` | Check for a guest cookie or create a guest profile from a display name and optional food preferences |
 | `DELETE /visitor` | Clear the active visitor cookie and return to guest setup. Stored records are retained. |
 | `GET /profile`, `PUT /profile` | Frontend reads or updates goals, preferences and connections |
 | `GET /persona`, `PUT /persona` | Frontend imports or reads the visitor's own health history. Import updates profile targets and the food log and feeds the coach's summary tool. |
@@ -195,7 +195,7 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 
 ### Data and tools
 
-- **Profile.** Name, location, member since, goals, food preferences, home, work, budget and connections `[{app, connected, shares[]}]`.
+- **Profile.** Name, location, member since, goals, food preferences, home, work and connections `[{app, connected, shares[]}]`.
 - **Day data.** One per date with sleep times, stages, events and short nights this week, recovery percentage, HRV note and seven-day bars, plus steps, active minutes and sitting hours.
 - **Food entry.** `id, date, time, meal, dish, kcal, protein_g, carbs_g, fat_g, source, photo_url?`. Sources are `photo`, `chat` and `suggested`.
 - **Booking.** `id, shop_id, restaurant_name, phone, party_size, time, name, status, call_sid, duration_s, quote, created_at`. Statuses are `calling`, `in_call`, `booked`, `no_answer`, `full` and `failed`.
@@ -215,7 +215,7 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 
 Keep prompts in one backend YAML file and restart after edits. Validate required keys and supported placeholders at startup.
 
-- **`coach.shared`**. Be brief and warm. Use one chart, one reason and one fix. Get numbers from tools and use `show_*` for choices. Respect Ploy's goals, tastes and budget. Explain that Ploy approves payment. Use Food listings to suggest places, offer a walk when Ploy is inactive, and book by phone with permission. After a failed call, suggest the next closest similar place. Reply in the language of her latest message.
+- **`coach.shared`**. Be brief and warm. Use one chart, one reason and one fix. Get numbers from tools and use `show_*` for choices. Respect Ploy's goals and tastes. Explain that Ploy approves payment. Use Food listings to suggest places, offer a walk when Ploy is inactive, and book by phone with permission. After a failed call, suggest the next closest similar place. Reply in the language of her latest message.
 - **`coach.chat_style`**. Plain text in one or two short paragraphs.
 - **`proactive.morning_sleep`, `proactive.dinner_tip`, `proactive.daily_summary`**. Define data to inspect, cards, a one-line notification and the first chat message.
 - **`recommendation.food` and `recommendation.item`**. Choose from a context-specific shortlist. The backend looks up Shopee listings after the choice and sends the resulting cards to the guest.

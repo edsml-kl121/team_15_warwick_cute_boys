@@ -280,7 +280,7 @@ class AgentsCoach:
 
         @function_tool
         async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
-            """Find Shopee Food places near the visitor that serve this dish within their budget and display them.
+            """Find Shopee Food places near the visitor that serve this dish and display them.
             Only these places can be booked. Use the returned shop_id with book_table_by_phone.
 
             Args:

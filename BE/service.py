@@ -161,7 +161,7 @@ class Zippy:
                         {"text": "Walk to dinner to get some movement in?", "quick_replies": ["Yes, I'll walk", "Not now"]},
                     ])
                 else:
-                    items.append({"text": "I couldn't find a place for this dish within your budget."})
+                    items.append({"text": "I couldn't find a place for this dish nearby."})
             elif moment == "weekly_recap":
                 recap = weekly_recap(self.state.get("persona"), self.state["profile"]["goals"])
                 name = self.state["profile"]["name"]
@@ -200,15 +200,14 @@ class Zippy:
                 "more": {"count": max(0, len(products) - 2), "price_range": [min(prices), max(prices)]}}
 
     async def find_places(self, session_id, dish, calories=None, protein_g=None):
-        """Find nearby Shopee Food places for a dish within budget and remember the top three for booking."""
+        """Find nearby Shopee Food places for a dish and remember the top three for booking."""
         results = await self.shopee.call("find_similar_dishes", dish=dish, calories=calories, protein_g=protein_g, limit=35)
-        budget = self.state["profile"]["preferences"]["budget_thb"]
         by_shop = {}
         for result in results:
             place = result.get("restaurant", result)
             item = result.get("item", result)
             protein = item.get("nutrition", item).get("protein_g")
-            if protein is not None and item["price_thb"] <= budget:
+            if protein is not None:
                 by_shop.setdefault(place["shop_id"], {
                     "shop_id": place["shop_id"], "name": place["name"], "dish": item["name"],
                     "protein_g": protein, "price_thb": item["price_thb"], "distance_km": place["distance_km"],
@@ -272,7 +271,7 @@ class Zippy:
             focus = f"You have {protein_left} g to go on your protein goal." if protein_left else "You've met your protein goal."
             taste = f" Use your food preferences ({preferences['food']}) to narrow it down." if preferences["food"] else ""
             yield {"type": "delta", "text": (
-                f"{focus} Look for a meal with a protein source and vegetables within ฿{preferences['budget_thb']}.{taste}"
+                f"{focus} Look for a meal with a protein source and vegetables.{taste}"
             )}
         elif any(word in answer for word in ("protein", "calorie", "food", "meal")):
             today = self.today()

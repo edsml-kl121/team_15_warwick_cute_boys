@@ -8,7 +8,7 @@ PROFILE = {
     "name": "Ploy", "location": "Silom, Bangkok", "member_since": "Nov 2026",
     "goals": {"sleep_minutes": 420, "deep_minutes": 90, "protein_g": 90, "kcal": 1900,
               "active_minutes": 20, "steps": 8000, "carbs_g": 230, "fat_g": 63},
-    "preferences": {"food": "Healthy Thai, mild spice", "home": "Sathorn Soi 8", "work": "Silom", "budget_thb": 300},
+    "preferences": {"food": "Healthy Thai, mild spice", "home": "Sathorn Soi 8", "work": "Silom"},
     "connections": [
         {"app": name, "connected": True, "shares": shares} for name, shares in [
             ("Shopee", ["Shopping and food listings"]), ("WHOOP", ["Sleep", "Recovery"]),
@@ -29,7 +29,7 @@ SLEEP = {
 RECOVERY = {"percent": 64, "note": "Take it easy · HRV below your usual level", "bars": [78, 71, 82, 59, 73, 67, 64]}
 ACTIVITY = {"steps": 2140, "steps_goal_pct": 27, "active_minutes": 3, "sitting_hours": 9}
 DINNER = {"dish": "Grilled chicken salad", "kcal": 400, "protein_g": 35,
-          "why": "A high-protein dinner that fits your remaining calories and budget."}
+          "why": "A high-protein dinner that fits your remaining calories."}
 NUTRIENTS = ("kcal", "protein_g", "carbs_g", "fat_g")
 FOOD = [
     ("07:40", "Breakfast", "Greek yogurt, granola and banana", 420, 11, 60, 16, "photo"),

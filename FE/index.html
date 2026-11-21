@@ -29,10 +29,11 @@
         <i class="material-icons" aria-hidden="true">menu</i>
       </button>
       <div class="brand"><img class="av" src="./assets/zippy-face.png" alt=""><div><h1>Zippy</h1><span class="header-status" role="status">Online</span></div></div>
-      <a class="ib" href="#profile" aria-label="Profile">
-        <i class="material-icons" aria-hidden="true">person</i>
-      </a>
+      <button type="button" class="ib" data-action="new-chat" aria-label="Start a new chat">
+        <i class="material-icons" aria-hidden="true" style="font-size:20px">edit_square</i>
+      </button>
     </header>
+    <a class="dash-link" href="#today">Today’s dashboard<i class="material-icons" aria-hidden="true">chevron_right</i></a>
     <section class="chat" aria-label="Conversation" tabindex="0">
       <div class="empty-chat">
         <img class="empty-mascot" src="./assets/zippy.png" alt="" width="421" height="512">
@@ -79,14 +80,6 @@
     <section class="page" data-page="food" aria-label="Food log" hidden></section>
     <section class="page" data-page="profile" aria-label="Profile" hidden></section>
     <section class="page" data-page="apps" aria-label="Connect apps" hidden></section>
-    <div class="lock-screen lock" hidden>
-      <p class="lock-date"></p>
-      <p class="lock-time"></p>
-      <button type="button" class="nt" data-action="open-notification">
-        <img class="av" src="./assets/zippy-face.png" alt="" width="36" height="36">
-        <span><b class="lock-title"></b><span class="lock-body"></span></span>
-      </button>
-    </div>
   </main>
   <dialog class="history-modal" aria-labelledby="history-title">
     <div class="history-scrim" data-action="close-history"></div>
@@ -132,7 +125,6 @@
     <form class="onboarding-form">
       <label>Display name<input name="name" autocomplete="nickname" maxlength="60" required></label>
       <label>Food preferences <span class="mut">(optional)</span><input name="food" maxlength="240" placeholder="e.g. Thai food, mild spice"></label>
-      <label>Budget per meal <span class="mut">(optional, THB)</span><input name="budget" type="number" inputmode="numeric" min="1" max="10000" placeholder="300"></label>
       <button class="btn" type="submit">Start as a guest</button>
     </form>
     <p class="onboarding-status mut" role="status" hidden></p>
