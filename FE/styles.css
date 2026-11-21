@@ -35,7 +35,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand h1 { margin: 0; font-size: 17px; }
 .brand img { width: 29px; height: 29px; }
-.chat { overflow: auto; overflow-anchor: none; justify-content: safe flex-end; scrollbar-width: none; }
+.chat { overflow: auto; overflow-anchor: none; justify-content: safe flex-end; scrollbar-width: none; container-type: size; }
 .chat:has(.empty-chat[hidden]) {
   --chat-fade-height: 32px;
   /* Keep the first message clear of the fade when scrolled all the way up. */
@@ -48,7 +48,9 @@ button:disabled { cursor: wait; opacity: .65; }
 .empty-mascot { width: 104px; height: auto; filter: drop-shadow(0 10px 18px #151c271f); animation: mascot-bob 3.2s ease-in-out infinite; }
 @keyframes mascot-bob { 50% { translate: 0 -6px; } }
 .empty-chat p { margin: 0; color: #3b4944; font-weight: 700; }
-.live-turns, .assistant-turn, .user-turn { display: flex; flex-direction: column; gap: 12px; }
+.live-turns, .latest-turn, .assistant-turn, .user-turn { display: flex; flex-direction: column; gap: 12px; }
+/* Let the latest reply grow downward from its prompt until it fills the chat area. */
+.latest-turn { min-block-size: 100cqh; }
 .live-turns:empty { display: none; }
 .live-avatar { width: 24px; height: 24px; }
 .live-turns .um { margin: 0; }
@@ -87,6 +89,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .dash-link { flex: none; align-self: center; display: inline-flex; align-items: center; height: 30px; margin: 8px 0 0; padding: 0 8px 0 14px; border: 1px solid #ebe9e2; border-radius: 999px; background: #fff; color: #151c27; font-size: 13px; font-weight: 700; text-decoration: none; }
 .dash-link .material-icons { font-size: 18px; color: #717975; }
 .msg-actions { display: flex; gap: 2px; margin-left: 30px; }
+.live-turns[data-replying] .msg-actions { visibility: hidden; }
 .msg-actions button { width: 32px; height: 32px; border: none; background: transparent; display: grid; place-items: center; cursor: pointer; color: #717975; border-radius: 999px; }
 .msg-actions button:active { opacity: .7; }
 .msg-actions button[aria-pressed="true"] { color: #3a6758; }
@@ -381,6 +384,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .stage-rem { background: #8fb3e3; }
 .stage-light { background: #a7d7c5; }
 .stage-deep { background: #2f5b4d; }
+.stage-other { background: #a7d7c5; }
 .stage-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; font-weight: 600; color: #404945; }
 .stage-legend span { display: flex; align-items: center; gap: 4px; }
 .stage-legend i { width: 9px; height: 9px; border-radius: 3px; }

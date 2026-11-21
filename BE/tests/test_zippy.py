@@ -230,6 +230,20 @@ def use_tool(client, tools, name, **arguments):
     return result
 
 
+def test_poor_night_trigger_shows_sleep_card_and_asks_why(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        assert client.post("/demo/trigger", json={"moment": "morning_sleep"}).is_success
+        feed = client.get("/feed").json()
+        card = cards(feed)[0]
+        assert card["kind"] == "sleep_insight" and card["quality"] == "poor"
+        assert len(cards(feed)) == 1
+        question = next(item for item in feed if item.get("quick_replies"))
+        assert "Why" in question["text"] and "Room too bright" in question["quick_replies"]
+        reply = say(client, "Room too bright")
+        assert "eye mask" in text(reply)
+        assert next(item for item in reply if item["type"] == "quick_replies")["options"] == ["Show me options", "Not now"]
+
+
 def test_sleep_trigger_can_be_replayed_from_the_presenter(tmp_path):
     with demo(tmp_path) as (client, simulator):
         assert client.post("/demo/trigger", json={"moment": "morning_sleep"}).is_success

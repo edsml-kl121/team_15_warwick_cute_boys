@@ -185,7 +185,7 @@
     realtime = null;
     session.stop();
     window.zippyVoiceThread.finish(thread);
-    if (thread === active) renderMessages(false, { followLatest: pinnedToLatest });
+    if (thread === active) renderMessages(false, { followLatest: false });
   }
 
   async function startRealtime() {
@@ -210,7 +210,7 @@
           thread.connected = true;
         }
         if (thread !== active || !change) return;
-        if (change === 'render') renderMessages(false, { followLatest: pinnedToLatest });
+        if (change === 'render') renderMessages(false, { followLatest: false });
         else scheduleStreamRender();
       },
       onEnd() {
@@ -304,7 +304,7 @@
     chat.scrollTo({ top: chat.scrollHeight, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant' });
   }
 
-  const STAGE_LABELS = { awake: 'Awake', rem: 'REM', light: 'Light', deep: 'Deep' };
+  const STAGE_LABELS = { awake: 'Awake', rem: 'REM', light: 'Light', deep: 'Deep', other: 'Other sleep' };
 
   function icon(name, className = '') {
     const element = node('i', `material-icons ${className}`.trim(), name);
@@ -338,7 +338,8 @@
     }
     const legend = node('div', 'stage-legend');
     legend.setAttribute('aria-hidden', 'true');
-    for (const [stage, label] of Object.entries(STAGE_LABELS)) {
+    const shown = new Set(segments.map(segment => segment.stage));
+    for (const [stage, label] of Object.entries(STAGE_LABELS).filter(([stage]) => shown.has(stage))) {
       const key = node('span', '', label);
       key.prepend(node('i', `stage-${stage}`));
       legend.append(key);
@@ -540,7 +541,7 @@
         }
         group.append(replies);
       }
-      if (message.text && Number.isInteger(index) && !active.pending) {
+      if (message.text && Number.isInteger(index)) {
         const canRegenerate = index === active.messages.length - 1 && active.messages[index - 1]?.role === 'user';
         group.append(createMessageActions(message, index, canRegenerate));
       }
@@ -561,14 +562,24 @@
   }
 
   function renderMessages(animate = false, { followLatest = true } = {}) {
+    const previousScrollTop = followLatest ? 0 : chat.scrollTop;
     headerStatus.textContent = active.pending ? 'Replying…' : HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
     const messages = active.messages.map(createMessage);
     if (animate) messages.at(-1)?.classList.add('message-enter');
     if (active.pending && active.response) messages.push(createLiveReply(active.response));
+    const latestPrompt = active.messages.findLastIndex(message => message.role === 'user');
+    if (latestPrompt !== -1) {
+      const latestTurn = node('div', 'latest-turn');
+      latestTurn.append(...messages.splice(latestPrompt));
+      messages.push(latestTurn);
+    }
+    log.toggleAttribute('data-replying', Boolean(active.pending));
     log.replaceChildren(...messages);
     dock.querySelector('.send-message').disabled = Boolean(active.pending);
     if (followLatest) scrollToLatest(animate);
+    // WebKit can reset the scroll offset when the message list is rebuilt.
+    else if (chat.scrollTop !== previousScrollTop) chat.scrollTop = previousScrollTop;
     drawHistory(); // The sidebar stays visible on wide screens, so keep its list current.
   }
 
@@ -642,7 +653,7 @@
     } finally {
       delete thread.pending;
       delete thread.response;
-      if (thread === active) renderMessages(false, { followLatest: pinnedToLatest });
+      if (thread === active) renderMessages(false, { followLatest: false });
     }
   }
 
@@ -1256,8 +1267,8 @@
   function topChatMessage() {
     const fadeEdge = chat.getBoundingClientRect().top + parseFloat(getComputedStyle(chat).paddingTop);
     let top = null;
-    for (const message of log.children) {
-      if (message.classList.contains('typing-dots') || message.getBoundingClientRect().top > fadeEdge) break;
+    for (const message of log.querySelectorAll('.user-turn, .assistant-turn')) {
+      if (message.getBoundingClientRect().top > fadeEdge) break;
       top = message;
     }
     return top;
@@ -1300,10 +1311,10 @@
   }, { passive: true });
   // Watch both the chat area (keyboard, dock modes) and its content (card photos loading, streamed text).
   const keepPinned = new ResizeObserver(() => {
+    const previousHeight = chatHeight;
     chatHeight = chat.clientHeight;
     if (pinnedToLatest && chat.scrollHeight - chat.clientHeight - chat.scrollTop > 1) {
-      stopChatScrollFeedback();
-      chat.scrollTop = chat.scrollHeight;
+      scrollToLatest(chatHeight === previousHeight);
     }
   });
   keepPinned.observe(chat);

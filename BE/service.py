@@ -17,6 +17,15 @@ MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19
 TITLES = {"morning_sleep": "Sleep insight", "dinner_tip": "Dinner tip", "daily_summary": "Daily summary",
           "weekly_recap": "Your week"}
 RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
+SLEEP_STAGES = ("deep", "rem", "light", "awake")
+# Tap answers to "why did you sleep badly?" and a short tip for each.
+SLEEP_REASONS = {
+    "Room too bright": ("Early light can cut your sleep short. An eye mask could help block it.",
+                        ["Show me options", "Not now"]),
+    "Stress": ("Stress keeps the body alert. Try 5 minutes of slow breathing before bed tonight.", []),
+    "Late screen time": ("Screens late at night delay sleep. Try putting the phone away 30 minutes before bed.", []),
+    "Noise": ("Noise breaks up deep sleep. Earplugs or a fan for steady sound can help.", []),
+}
 
 
 def normalize(text):
@@ -196,6 +205,10 @@ class Zippy:
             if isinstance(minutes, (int, float)) and 0 < minutes <= 1440:
                 sleep = {"minutes": round(minutes), "deep_minutes": row.get("deep_minutes"),
                          "date": night, "source": "Imported sample" if row.get("source") == "imported_sample" else row.get("source")}
+                totals = {stage: row[f"{stage}_minutes"] for stage in SLEEP_STAGES
+                          if isinstance(row.get(f"{stage}_minutes"), (int, float)) and row[f"{stage}_minutes"] >= 0}
+                if totals:
+                    sleep["totals"] = totals
                 break
         return {
             "sleep": sleep,
@@ -206,10 +219,15 @@ class Zippy:
     def sleep_card(self):
         day = self.data_date()
         sleep = self.wellness(day, self.health_persona())["sleep"]
-        goal = self.state["profile"]["goals"]["deep_minutes"]
+        goals = self.state["profile"]["goals"]
+        goal = goals["deep_minutes"]
         deep = sleep.get("deep_minutes")
-        return {"kind": "sleep_insight", **sleep, "goal_minutes": goal,
-                "shortfall_minutes": max(0, goal - deep) if deep is not None else None}
+        minutes = sleep.get("minutes")
+        short = minutes is not None and minutes < goals["sleep_minutes"]
+        low_deep = deep is not None and deep < goal
+        return {"kind": "sleep_insight", **sleep, "goal_minutes": goal, "sleep_goal_minutes": goals["sleep_minutes"],
+                "shortfall_minutes": max(0, goal - deep) if deep is not None else None,
+                "quality": None if minutes is None else ("poor" if short or low_deep else "good")}
 
     def today(self):
         day = self.data_date()
@@ -263,9 +281,11 @@ class Zippy:
             if moment == "morning_sleep":
                 sleep = self.sleep_card()
                 minutes = sleep["minutes"]
-                items = [
-                    {"card": sleep},
-                ] if minutes is not None else []
+                items = [{"card": sleep}] if minutes is not None else []
+                if sleep["quality"] == "poor":
+                    session["pending"] = "sleep_why"
+                    items.append({"text": "That wasn't a great night. Why do you think you slept badly?",
+                                  "quick_replies": list(SLEEP_REASONS)})
             elif moment == "dinner_tip":
                 today = self.today()
                 protein = today["totals"]["protein_g"]
@@ -522,6 +542,13 @@ class Zippy:
                     text = "Skipped the exercise review."
                     session.pop("exercise_review")
             yield {"type": "delta", "text": text}
+        elif pending == "sleep_why" and (reason := next(
+                (key for key in SLEEP_REASONS if normalize(key) == answer and answers(normalize(key))), None)):
+            session["pending"] = None
+            tip, replies = SLEEP_REASONS[reason]
+            yield {"type": "delta", "text": tip}
+            if replies:
+                yield {"type": "quick_replies", "options": replies}
         elif answer == "not now" and answers("not now"):
             session["pending"] = None
             yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}

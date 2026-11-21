@@ -150,18 +150,23 @@
               orderItemId: data.orderable === true ? place.item_id : undefined,
             };
           }), note: 'Menus and nutrition from Shopee Food' }];
-      case 'sleep_insight':
-        return [{ title: Number.isFinite(data.deep_minutes) ? 'Deep sleep' : 'Sleep', icon: 'bedtime',
-          value: duration(data.deep_minutes ?? data.minutes),
-          description: Number.isFinite(data.shortfall_minutes)
-            ? (data.shortfall_minutes > 0 ? `${duration(data.shortfall_minutes)} short of your ${duration(data.goal_minutes)} goal` : 'Deep sleep goal met')
-            : (Number.isFinite(data.minutes) ? null : 'No recent sleep reading'),
-          timeline: (data.timeline || []).filter(([stage, minutes]) => typeof stage === 'string' && Number.isFinite(minutes))
-            .map(([stage, minutes]) => ({ stage, minutes })),
+      case 'sleep_insight': {
+        const stages = (data.timeline || []).filter(([stage, minutes]) => typeof stage === 'string' && Number.isFinite(minutes));
+        const totals = Object.entries(data.totals || {}).filter(([, minutes]) => Number.isFinite(minutes) && minutes > 0);
+        // Without stage data, split the night into deep and other sleep.
+        const split = Number.isFinite(data.minutes) && Number.isFinite(data.deep_minutes)
+          ? [['deep', data.deep_minutes], ['other', Math.max(0, data.minutes - data.deep_minutes)]] : [];
+        const goalMeter = (label, value, goal) => Number.isFinite(value) && Number.isFinite(goal)
+          ? { label, text: `${duration(value)} of ${duration(goal)}`, value, max: goal, met: value >= goal } : null;
+        return [{ title: "Last night's sleep", icon: 'bedtime',
+          badge: { poor: 'Poor night', good: 'Good night' }[data.quality],
+          value: duration(data.minutes),
+          description: Number.isFinite(data.minutes) ? null : 'No recent sleep reading',
+          timeline: (stages.length ? stages : totals.length ? totals : split).map(([stage, minutes]) => ({ stage, minutes })),
+          meters: [goalMeter('Total sleep', data.minutes, data.sleep_goal_minutes), goalMeter('Deep sleep', data.deep_minutes, data.goal_minutes)].filter(Boolean),
           chips: (data.events || []).map(event => `${event.at} ${event.label}`),
-          rows: Object.entries(data.totals || {}).map(([stage, minutes]) => row(stage === 'rem' ? 'REM' : stage[0].toUpperCase() + stage.slice(1), duration(minutes))),
-          note: [data.date, data.source, data.minutes && Number.isFinite(data.deep_minutes) && `${duration(data.minutes)} asleep`,
-            data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
+          note: [data.date, data.source, data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
+      }
       case 'meal': {
         const query = new URLSearchParams(data.food_id ? { food_id: data.food_id } : { dish: data.dish });
         return [{ title: data.dish, icon: 'restaurant', value: amount(data.protein_g, 'g protein'), description: data.why,

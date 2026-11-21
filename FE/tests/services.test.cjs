@@ -151,3 +151,16 @@ test('the voice address is a WebSocket on the API, carrying the chat and where t
     'wss://zippy.example/api/voice?session_id=chat-1&lat=13.72&lng=100.53');
   assert.equal(guest.voiceUrl('chat-1'), 'wss://zippy.example/api/voice?session_id=chat-1');
 });
+
+test('sleep card charts last night and flags a poor night', () => {
+  const service = loadService(async () => { throw new Error('offline'); });
+  const [card] = service.cards({ kind: 'sleep_insight', minutes: 310, deep_minutes: 58, goal_minutes: 90,
+    sleep_goal_minutes: 420, quality: 'poor' });
+  assert.equal(card.title, "Last night's sleep");
+  assert.equal(card.badge, 'Poor night');
+  assert.equal(JSON.stringify(card.timeline.map(part => [part.stage, part.minutes])), '[["deep",58],["other",252]]');
+  assert.equal(card.meters.map(meter => meter.met).join(), 'false,false');
+  const [staged] = service.cards({ kind: 'sleep_insight', minutes: 300, deep_minutes: 50,
+    totals: { deep: 50, rem: 60, light: 185, awake: 5 } });
+  assert.equal(staged.timeline.map(part => part.stage).join(), 'deep,rem,light,awake');
+});
