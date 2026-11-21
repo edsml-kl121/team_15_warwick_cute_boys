@@ -81,8 +81,9 @@ class MongoStore:
         guest = database.guests.find_one({"_id": owner})
         if guest:
             self.state.update({key: guest[key] for key in ("profile", "date", "clock")})
-            if guest.get("persona"):
-                self.state["persona"] = guest["persona"]
+            for key in ("persona", "push_subscriptions"):
+                if guest.get(key):
+                    self.state[key] = guest[key]
             self.load_records()
         source_day = database.wellness_days.find_one(
             {"dataset_id": DATASET, "date": self.state["date"]}, {"_id": 0, "dataset_id": 0, "date": 0},
@@ -128,7 +129,7 @@ class MongoStore:
         docs = {name: {} for name in COLLECTIONS if name != "wellness_days"}
         docs["guests"][self.owner] = {
             **{key: state[key] for key in ("profile", "date", "clock")},
-            **({"persona": state["persona"]} if state.get("persona") else {}),
+            **{key: state[key] for key in ("persona", "push_subscriptions") if state.get(key)},
             "dataset_id": DATASET, "demo": self.demo,
         }
         for name, key in RECORDS.items():
@@ -187,6 +188,17 @@ class VisitorStores:
         if create:
             store.save()
         return store
+
+    def find_owners(self, name):
+        """Guest owners whose profile name matches, case-insensitively."""
+        wanted = name.strip().casefold()
+        if self.database is not None:
+            import re
+
+            pattern = {"$regex": f"^{re.escape(name.strip())}$", "$options": "i"}
+            return [doc["_id"] for doc in self.database.guests.find({"profile.name": pattern}, {"_id": 1})]
+        return [path.parent.name for path in (self.directory / "visitors").glob("*/demo.json")
+                if json.loads(path.read_text())["profile"]["name"].strip().casefold() == wanted]
 
     def booking_owner(self, booking_id):
         if self.database is not None:

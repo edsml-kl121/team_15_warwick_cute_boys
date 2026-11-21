@@ -18,6 +18,9 @@ proactive:
   daily_summary:
     notification: Your daily summary is ready.
     intro: Here's how today went, Ploy.
+  weekly_recap:
+    notification: "{headline}"
+    intro: Here's your last {days} days, {name}.
 phone:
   rules: >-
     Speak first in {language}, then switch if asked. Keep turns short and read the time and party size back.

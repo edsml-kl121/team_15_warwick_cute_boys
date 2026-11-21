@@ -31,7 +31,7 @@ class FakeShopee:
             self.status = "cancelled"
             return {"status": self.status}
         if name == "find_similar_dishes":
-            assert values["calories"] == 400
+            self.dish_searches = [*getattr(self, "dish_searches", []), values]
             return [{"shop_id": shop_id, "name": "Caesar chicken", "price_thb": price,
                      "nutrition": {"protein_g": protein},
                      "restaurant": {"shop_id": shop_id, "name": title, "distance_km": distance}}
@@ -291,3 +291,111 @@ def test_photo_stream_reports_progress_and_logs_only_success(tmp_path):
         assert food_log["totals"]["protein_g"] == 78
         assert food_log["meals"][-1]["id"] == done["meal"]["id"]
         assert "350 kcal" in client.get("/feed").json()[-1]["text"]
+
+
+class FakePush:
+    public_key = "test-public-key"
+
+    def __init__(self):
+        self.sent = []
+        self.gone = set()
+
+    async def send(self, subscriptions, notification):
+        self.sent.append(([item["endpoint"] for item in subscriptions], notification))
+        return set(self.gone)
+
+
+def test_push_subscribe_and_presenter_trigger_by_guest_name(tmp_path):
+    import time
+
+    push = FakePush()
+    guest = {"X-Zippy-Demo": "0"}
+    device = {"endpoint": "https://push.example/device-1", "keys": {"p256dh": "key", "auth": "secret"}}
+    with demo(tmp_path, push=push) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Kong"}).is_success
+        assert client.get("/push/key", headers=guest).json() == {"public_key": "test-public-key"}
+        assert client.post("/push/subscribe", headers=guest, json={"session_id": "phone", "subscription": device}).json() == {"devices": 1}
+        assert client.post("/push/subscribe", headers=guest, json={"session_id": "phone", "subscription": device}).json() == {"devices": 1}
+        bad = {**device, "endpoint": "http://insecure.example"}
+        assert client.post("/push/subscribe", headers=guest, json={"subscription": bad}).status_code == 422
+
+        body = {"guest_name": "kong", "moment": "dinner_tip"}
+        assert client.post("/presenter/trigger", json=body).status_code == 403
+        assert client.post("/presenter/trigger", json={**body, "guest_name": "Nobody"},
+                           headers={"X-Presenter-Key": "local-presenter"}).status_code == 404
+        fired = client.post("/presenter/trigger", json=body, headers={"X-Presenter-Key": "local-presenter"})
+        assert fired.is_success and fired.json()["devices"] == 1
+        for _ in range(50):
+            if push.sent:
+                break
+            time.sleep(0.02)
+        endpoints, notification = push.sent[0]
+        assert endpoints == ["https://push.example/device-1"] and notification["title"] == "Dinner tip"
+
+        push.gone = {"https://push.example/device-1"}
+        assert client.post("/presenter/trigger", json={**body, "moment": "daily_summary"},
+                           headers={"X-Presenter-Key": "local-presenter"}).is_success
+        for _ in range(50):
+            if client.post("/push/subscribe", headers=guest, json={"subscription": {
+                    **device, "endpoint": "https://push.example/device-2"}}).json()["devices"] == 1:
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("expired device was not removed")
+
+
+def test_push_key_reports_missing_configuration(tmp_path):
+    with demo(tmp_path) as (client, _):
+        assert client.get("/push/key").status_code == 503
+
+
+def _meal(log_id, date, meal_time, dish, kcal, protein, restaurant=None, cuisine="italian"):
+    entry = {"log_id": log_id, "date": date, "timestamp": f"{date}T12:00:00+07:00", "meal_time": meal_time,
+             "meal_name": dish, "items": [{"dish_name": dish, "cuisine": cuisine,
+                                            "nutrition": {"calories": kcal, "protein_g": protein}}],
+             "meal_totals": {"calories": kcal, "protein_g": protein, "sodium_mg": 1500}}
+    if restaurant:
+        entry.update(channel="shopee_food_order", order={"restaurant": restaurant, "total_thb": 300})
+    else:
+        entry.update(channel="agent_call", agent_call={"logged_via": "chat"})
+    return entry
+
+
+def test_presenter_recap_and_dinner_use_imported_history(tmp_path):
+    history = {**PERSONA, "food_history_log": [
+        _meal("a", "2026-11-19", "breakfast", "Scrambled Eggs", 380, 20),
+        _meal("b", "2026-11-19", "dinner", "Spaghetti Bolognese", 600, 32, "Pasta Fresca"),
+        _meal("c", "2026-11-20", "dinner", "Spaghetti Bolognese", 600, 32, "Pasta Fresca"),
+        _meal("d", "2026-11-20", "lunch", "Grilled Chicken Rice", 520, 40, "FitMeal BKK", "thai"),
+        _meal("e", "2026-11-21", "lunch", "Steak Frites", 1400, 60, "Sunday Steakhouse", "american"),
+    ]}
+    guest = {"X-Zippy-Demo": "0"}
+    presenter = {"X-Presenter-Key": "local-presenter"}
+    with demo(tmp_path) as (client, shopee):
+        assert client.post("/visitor", headers=guest, json={"name": "Krit"}).is_success
+        assert client.put("/persona", headers=guest, json=history).is_success
+
+        assert client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "dinner_tip"}).is_success
+        feed = client.get("/feed?session_id=presenter", headers=guest).json()
+        meal = next(card for card in cards(feed) if card["kind"] == "meal")
+        assert meal["dish"] == "Spaghetti Bolognese" and "Pasta Fresca" in meal["why"]
+        assert shopee.dish_searches[-1]["dish"] == "Spaghetti Bolognese" and shopee.dish_searches[-1]["calories"] == 600
+
+        assert client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "weekly_recap"}).is_success
+        feed = client.get("/feed?session_id=presenter", headers=guest).json()
+        recap = next(card for card in cards(feed) if card["kind"] == "weekly_recap")
+        assert recap["days"] == 3 and recap["top_restaurant"] == "Pasta Fresca" and recap["kcal_goal"] == 2491
+        assert feed[-1]["quick_replies"] == ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
+        assert feed[0]["notify"]["title"] in {"Dinner tip", "Your week"}
+
+        plan = "".join(event.get("text", "") for event in say_as(client, guest, "Plan tomorrow's meals"))
+        assert "| Breakfast | Scrambled Eggs |" in plan and "Spaghetti Bolognese" in plan
+        lighter = "".join(event.get("text", "") for event in say_as(client, guest, "Find lighter orders"))
+        assert lighter.splitlines()[2].startswith("- **Grilled Chicken Rice** at FitMeal BKK")
+
+
+def say_as(client, headers, message):
+    response = client.post("/chat", headers=headers, json={"session_id": "presenter", "message": message})
+    events = [json.loads(line) for line in response.iter_lines()]
+    assert events[-1]["type"] == "done", events
+    return events

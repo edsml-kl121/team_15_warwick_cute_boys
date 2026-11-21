@@ -15,9 +15,15 @@
       preview: ['Time to go', 'Time to go. 10 min walk, route is on your lock screen.'] },
     { scene: 'Scene 2 · 19:40', name: 'Daily summary', body: { moment: 'daily_summary' },
       preview: ['Daily summary', 'That’s your day, Ploy.'] },
+    { scene: 'Recap · 20:30', name: 'Weekly recap and questions', body: { moment: 'weekly_recap' },
+      needs: 'Uses the guest’s imported health history.',
+      preview: ['Your week', 'You averaged 190 kcal a day over your target, mostly at dinner.'] },
   ];
 
   const sessionInput = document.querySelector('#session');
+  const guestInput = document.querySelector('#guest-name');
+  const keyInput = document.querySelector('#presenter-key');
+  const KEY_STORAGE = 'zippy-presenter-key';
   const list = document.querySelector('.pr-flows');
   const log = document.querySelector('.pr-log');
   const worker = 'serviceWorker' in navigator && window.isSecureContext
@@ -56,6 +62,14 @@
   async function trigger(flow, row) {
     const body = flow.reminderTime ? { reminder: row.querySelector('input[type="time"]').value } : flow.body;
     if (flow.reminderTime && !/^\d{2}:\d{2}$/.test(body.reminder)) throw new Error('Choose a reminder time.');
+    const guestName = guestInput.value.trim();
+    if (guestName) {
+      if (!keyInput.value) throw new Error('Enter the presenter key.');
+      const result = await service.json('presenter/trigger', { guest_name: guestName, ...body }, 'POST',
+        { 'X-Presenter-Key': keyInput.value });
+      return result.devices ? `sent to ${guestName} and ${result.devices} device${result.devices > 1 ? 's' : ''}.`
+        : `sent to ${guestName}'s chat. Their phone hasn't turned notifications on yet.`;
+    }
     await service.json('demo/trigger', { session_id: session(), ...body });
     return 'sent.';
   }
@@ -107,6 +121,13 @@
     });
   });
 
-  sessionInput.value = new URLSearchParams(location.search).get('session') || '';
+  const params = new URLSearchParams(location.search);
+  sessionInput.value = params.get('session') || '';
+  sessionInput.closest('details').open = Boolean(sessionInput.value);
+  guestInput.value = params.get('guest') || '';
+  try { keyInput.value = localStorage.getItem(KEY_STORAGE) || ''; } catch { /* storage blocked: type it each time */ }
+  keyInput.addEventListener('change', () => {
+    try { localStorage.setItem(KEY_STORAGE, keyInput.value); } catch { /* the key still works for this visit */ }
+  });
   list.replaceChildren(...FLOWS.map(flowRow));
 })();

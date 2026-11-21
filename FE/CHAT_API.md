@@ -85,20 +85,14 @@ Profile › Health data reads `GET /persona` (404 until imported) and imports a 
 
 The Caddy proxy adds the server token to demo routes. Anyone who can reach the frontend can trigger or reset the demo. Restrict the frontend URL or remove the demo routes from the Caddy matcher outside rehearsals.
 
-## Web push (backend work needed)
+## Web push
 
-The frontend is ready: the app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen. The backend needs:
+The app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen.
 
-1. **VAPID keys.** Generate a key pair once and keep the private key in an environment variable, such as `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT=mailto:team@example.com`.
-2. **`GET /push/key`** returns `{"public_key": "<base64url VAPID public key>"}`.
-3. **`POST /push/subscribe`** accepts `{session_id, subscription: {endpoint, expirationTime, keys: {p256dh, auth}}}`. Store subscriptions per session and deduplicate by `endpoint`. The browser posts again whenever a chat first connects, so one device can belong to several sessions.
-4. **Send.** Whenever a feed item with `notify` is emitted, send a push to that session's subscriptions, for example with `pywebpush`. Use this payload, which `sw.js` reads:
+1. **Keys.** The backend reads `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. Generate them with `uv run python -m push` in `BE/`.
+2. **`GET /push/key`** returns `{"public_key": "<base64url>"}`, or 503 when push isn't configured.
+3. **`POST /push/subscribe`** accepts `{session_id, subscription: {endpoint, expirationTime, keys: {p256dh, auth}}}` and stores up to 10 devices per guest, deduplicated by endpoint.
+4. **Send.** Each feed item with `notify` is pushed as `{"title", "body", "url": "./", "tag"}`. The service worker shows `Zippy · <title>` and opens the app on tap. Gone devices (404 or 410) are removed.
+5. **Proxy.** The Caddyfile forwards `/api/push/*` and `/api/presenter/*` with the server token.
 
-   ```json
-   {"title": "Dinner tip", "body": "You're 40 g short on protein today…", "url": "./", "tag": "dinner_tip"}
-   ```
-
-   The service worker shows `Zippy · <title>` and opens `url` on tap. Use a same-origin relative URL. Delete a subscription when the push service answers 404 or 410.
-5. **Proxy.** The Caddyfile already forwards `/api/push/*` with the server token.
-
-Until these routes exist, **Turn on notifications** reports that it couldn't turn notifications on. Chat, pages and the in-app lock screen work without push.
+The presenter dashboard targets a guest by display name with the presenter key (`POST /presenter/trigger`), so a laptop can send a moment to a phone. The Ploy demo session option still works from the same browser.

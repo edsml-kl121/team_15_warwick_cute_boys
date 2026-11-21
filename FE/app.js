@@ -883,6 +883,18 @@
   history.querySelector('.demo-entry').hidden = service.demo;
   document.querySelectorAll('.demo-exit').forEach(link => { link.hidden = !service.demo; });
   history.querySelector('.guest-exit').hidden = service.demo;
+  // iOS overlays the keyboard instead of resizing the page; track the visible height so the composer stays above it.
+  function fitViewport() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    document.documentElement.style.setProperty('--app-height', `${Math.round(viewport.height)}px`);
+    if (viewport.offsetTop) window.scrollTo(0, 0);
+    if (mode === 'typing') scrollToLatest();
+  }
+  window.visualViewport?.addEventListener('resize', fitViewport);
+  window.visualViewport?.addEventListener('scroll', fitViewport);
+  fitViewport();
+
   window.addEventListener('hashchange', route);
   enableEdgeSwipe();
   main.inert = true;

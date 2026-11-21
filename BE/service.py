@@ -7,17 +7,20 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from demo import DINNER, NUTRIENTS, after_minutes
-from persona import persona_meals
+from persona import lighter_orders, persona_meals, pick_meal, plan_day, weekly_recap
 
 
-MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19:40"}
+MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19:40", "weekly_recap": "20:30"}
+TITLES = {"morning_sleep": "Sleep insight", "dinner_tip": "Dinner tip", "daily_summary": "Daily summary",
+          "weekly_recap": "Your week"}
+RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
 
 
 class Zippy:
-    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos):
+    def __init__(self, store, clock, health, shopee, prompts, coach, phone, photos, push=None):
         self.store, self.clock, self.health = store, clock, health
         self.shopee, self.prompts, self.coach = shopee, prompts, coach
-        self.phone, self.photos = phone, photos
+        self.phone, self.photos, self.push = phone, photos, push
         self.tasks = set()
         self.chat_locks = defaultdict(asyncio.Lock)
         self.mutation = asyncio.Lock()
@@ -55,6 +58,18 @@ class Zippy:
             feed.append(entry)
             self.record_event(session, type="feed", item=entry)
         self.store.save()
+        for item in items:
+            if item.get("notify") and self.push and self.state.get("push_subscriptions"):
+                self.spawn(self.deliver(item["notify"]))
+
+    async def deliver(self, notification):
+        """Send a notification to the visitor's devices and forget devices the push service dropped."""
+        gone = await self.push.send(list(self.state["push_subscriptions"]), notification)
+        if gone:
+            async with self.mutation:
+                self.state["push_subscriptions"] = [
+                    item for item in self.state.get("push_subscriptions", []) if item["endpoint"] not in gone]
+                self.store.save()
 
     def sleep_card(self):
         sleep = self.health.today(self.state, self.state["date"])["sleep"]
@@ -110,8 +125,10 @@ class Zippy:
                 protein = today["totals"]["protein_g"]
                 goal = today["goals"]["protein_g"]
                 values = {"protein_g": protein, "protein_goal": goal, "protein_gap": max(0, goal - protein)}
-                places = await self.shopee.call("find_similar_dishes", dish=DINNER["dish"],
-                                                calories=DINNER["kcal"], protein_g=DINNER["protein_g"], limit=35)
+                kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
+                dinner = pick_meal(self.state.get("persona"), values["protein_gap"], kcal_left, DINNER)
+                places = await self.shopee.call("find_similar_dishes", dish=dinner["dish"],
+                                                calories=dinner["kcal"], protein_g=dinner["protein_g"], limit=35)
                 budget = self.state["profile"]["preferences"]["budget_thb"]
                 by_shop = {}
                 for result in places:
@@ -125,7 +142,7 @@ class Zippy:
                         })
                 places = sorted(by_shop.values(), key=lambda place: (-place["protein_g"], place["distance_km"], place["price_thb"]))
                 session["places"] = places[:3]
-                items = [{"card": {"kind": "meal", **DINNER}}]
+                items = [{"card": {"kind": "meal", **dinner}}]
                 if places:
                     session["pending"] = "walk"
                     nearby = "I found one place nearby." if len(places) == 1 else f"I found {len(session['places'])} places. {places[0]['name']} has the most protein."
@@ -136,13 +153,24 @@ class Zippy:
                     ])
                 else:
                     items.append({"text": "I couldn't find a place for this dish within your budget."})
+            elif moment == "weekly_recap":
+                recap = weekly_recap(self.state.get("persona"), self.state["profile"]["goals"])
+                name = self.state["profile"]["name"]
+                if recap:
+                    values = {"days": recap["days"], "name": name, "headline": recap["insight"]}
+                    session["pending"] = "recap"
+                    items = [{"card": recap},
+                             {"text": f"{recap['insight']} What should we work on?", "quick_replies": RECAP_REPLIES}]
+                else:
+                    values = {"days": 7, "name": name, "headline": "Import your health history to get a weekly recap."}
+                    items = [{"text": "Import your health history in Profile and I'll recap your week here."}]
             else:
                 items = [{"card": self.summary()}]
             notification = self.prompts.render(f"{key}.notification", **values)
             intro = self.prompts.render(f"{key}.intro", **values)
             session["moments"].append(moment)
             self.emit(session_id, {"text": intro, "notify": {
-                "title": {"morning_sleep": "Sleep insight", "dinner_tip": "Dinner tip", "daily_summary": "Daily summary"}[moment],
+                "title": TITLES[moment],
                 "body": notification,
             }}, *items)
 
@@ -187,6 +215,9 @@ class Zippy:
             booking = await self.book(session_id, session["alternate"]["shop_id"])
             session["pending"] = None
             yield {"type": "delta", "text": f"Calling {booking['restaurant_name']} now."}
+        elif answer in {"plan tomorrow's meals", "find lighter orders"}:
+            for event in self.recap_answer(answer):
+                yield event
         elif self.coach:
             async for event in self.coach.stream(self, session_id, message, session["history"]):
                 yield event
@@ -212,6 +243,34 @@ class Zippy:
             yield {"type": "delta", "text": f"You've logged {today['totals']['protein_g']} g of protein and {today['totals']['kcal']:,} kcal today."}
         else:
             yield {"type": "delta", "text": "You can ask me about last night's sleep, today's activity, or your meals."}
+
+    def recap_answer(self, answer):
+        """Rule-based follow-ups to the weekly recap, built from the imported history."""
+        persona, goals = self.state.get("persona"), self.state["profile"]["goals"]
+        if not persona:
+            yield {"type": "delta", "text": "Import your health history in Profile first, then I can plan from it."}
+            return
+        if answer == "plan tomorrow's meals":
+            plan = plan_day(persona, goals)
+            if not plan:
+                yield {"type": "delta", "text": "I couldn't find enough logged meals to build a plan yet."}
+                return
+            rows = "\n".join(f"| {meal['meal']} | {meal['dish']} | {meal['kcal']:,} | {meal['protein_g']} g |" for meal in plan)
+            kcal, protein = sum(meal["kcal"] for meal in plan), sum(meal["protein_g"] for meal in plan)
+            yield {"type": "delta", "text": (
+                f"Here's a day built from meals you already eat, aiming for **{goals['kcal']:,} kcal** and "
+                f"**{goals['protein_g']} g protein**:\n\n| Meal | Dish | kcal | Protein |\n|---|---|---|---|\n{rows}\n\n"
+                f"Total: {kcal:,} kcal · {protein} g protein.")}
+            yield {"type": "quick_replies", "options": ["Find lighter orders", "Not now"]}
+            return
+        picks = lighter_orders(persona)
+        if not picks:
+            yield {"type": "delta", "text": "I don't see enough Shopee Food orders to compare yet."}
+            return
+        lines = "\n".join(f"- **{dish['dish']}** at {dish['restaurant']} · {dish['kcal']:,} kcal · {dish['protein_g']} g protein"
+                          for dish in picks)
+        yield {"type": "delta", "text": f"Your go-to orders with the most protein per calorie:\n\n{lines}"}
+        yield {"type": "quick_replies", "options": ["Plan tomorrow's meals", "Not now"]}
 
     async def buy(self, session_id, item_id):
         async with self.mutation:

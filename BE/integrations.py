@@ -25,6 +25,8 @@ class Prompts:
         "proactive.dinner_tip.intro": {"protein_g", "protein_goal"},
         "proactive.daily_summary.notification": set(),
         "proactive.daily_summary.intro": set(),
+        "proactive.weekly_recap.notification": {"headline"},
+        "proactive.weekly_recap.intro": {"days", "name"},
         "phone.rules": {"language"}, "phone.book_table": {"restaurant_name", "party_size", "time", "name"},
     }
 
