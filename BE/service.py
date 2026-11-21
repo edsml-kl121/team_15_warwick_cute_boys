@@ -6,8 +6,10 @@ from collections import defaultdict
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
-from demo import DINNER, NUTRIENTS, after_minutes
+from demo import NUTRIENTS, after_minutes
 from persona import lighter_orders, persona_meals, pick_meal, plan_day, weekly_recap
+from recommendations import RecommendationUnavailable, food_candidates, match_catalog_food, number
+from storage import read_food_catalog, read_guest_recommendation_data
 
 
 MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19:40", "weekly_recap": "20:30"}
@@ -17,6 +19,16 @@ RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
 FOOD_SEARCH = re.compile(
     r"\b(dinner|lunch|restaurants?|nearby|near me|where to eat|shopee food|food delivery|order (?:some )?food)\b",
 )
+NUTRITION_LOOKUP = re.compile(r"\b(calories?|kcal|nutrition|macros?|protein|carbs?|carbohydrates?|fat)\b")
+NUTRITION_CONTEXT = re.compile(
+    r"\b(my|today|yesterday|logged|goal|remaining|left|burned|suggest|recommend|under|at least)\b",
+)
+CATALOG_NUTRIENTS = {
+    "kcal": (r"\b(calories?|kcal)\b", "kcal"),
+    "protein_g": (r"\bprotein\b", "g protein"),
+    "carbs_g": (r"\b(carbs?|carbohydrates?)\b", "g carbs"),
+    "fat_g": (r"\bfat\b", "g fat"),
+}
 
 
 class Zippy:
@@ -80,12 +92,14 @@ class Zippy:
             raise ValueError("A recommendation is already running for this guest.")
         async with self.recommendation_lock:
             snapshot = self.state
-            items, products = await agents.run(kind, self)
+            items, products, restaurant_query = await agents.run(kind, self)
             async with self.mutation:
                 if snapshot is not self.state:
                     raise ValueError("The guest session was reset. Trigger the recommendation again.")
+                session = self.session(session_id)
+                if restaurant_query:
+                    session["recommended_meal"] = restaurant_query
                 if products:
-                    session = self.session(session_id)
                     existing = {item["item_id"]: item for item in session["products"]}
                     existing.update((item["item_id"], item) for item in products)
                     session["products"] = list(existing.values())
@@ -94,20 +108,61 @@ class Zippy:
                     if kind == "food" else ("Item recommendation", "I found a Shopee Mall option for you.")
                 )
                 self.emit(session_id, {"text": body, "notify": {"title": title, "body": body}}, *items)
+                return items
+
+    def data_date(self):
+        return self.state["date"] if self.store.demo else self.clock.now().date().isoformat()
+
+    def personal_data(self, day):
+        return read_guest_recommendation_data(self.store.database, self.store.owner, day) or {}
+
+    def health_persona(self):
+        return self.personal_data(self.data_date()).get("persona")
+
+    def wellness(self, day, persona):
+        if self.health:
+            return self.health.today(self.state, day)
+        yesterday = str(date.fromisoformat(day) - timedelta(days=1))
+        readings = {row.get("date"): row for row in (persona or {}).get("wearable_daily", [])
+                    if row.get("date") in (day, yesterday)}
+        current = readings.get(day, {})
+        sleep = {"minutes": None, "deep_minutes": None}
+        for night in (day, yesterday):
+            row = readings.get(night, {})
+            hours = row.get("sleep_hours")
+            minutes = row.get("sleep_minutes")
+            if not isinstance(minutes, (int, float)) and isinstance(hours, (int, float)):
+                minutes = hours * 60
+            if isinstance(minutes, (int, float)) and 0 < minutes <= 1440:
+                sleep = {"minutes": round(minutes), "deep_minutes": row.get("deep_minutes"),
+                         "date": night, "source": "Imported sample" if row.get("source") == "imported_sample" else row.get("source")}
+                break
+        return {
+            "sleep": sleep,
+            "activity": {key: current.get(key) for key in ("steps", "active_minutes", "sitting_hours")},
+            "recovery": {"percent": current.get("recovery_pct"), "bars": []},
+        }
 
     def sleep_card(self):
-        sleep = self.health.today(self.state, self.state["date"])["sleep"]
+        day = self.data_date()
+        sleep = self.wellness(day, self.health_persona())["sleep"]
         goal = self.state["profile"]["goals"]["deep_minutes"]
+        deep = sleep.get("deep_minutes")
         return {"kind": "sleep_insight", **sleep, "goal_minutes": goal,
-                "shortfall_minutes": max(0, goal - sleep["deep_minutes"])}
+                "shortfall_minutes": max(0, goal - deep) if deep is not None else None}
 
     def today(self):
-        date = self.state["date"]
-        goals = self.state["profile"]["goals"]
-        data = self.health.today(self.state, date)
-        activity = {**data["activity"], "steps_goal_pct": round(100 * data["activity"]["steps"] / goals["steps"])}
-        return {"date": date, "now": self.now().isoformat(), "demo_data": True, **data, "activity": activity, "goals": goals,
-                "totals": self.food_log(date)["totals"],
+        day = self.data_date()
+        stored = self.personal_data(day)
+        goals = stored.get("profile", self.state["profile"])["goals"]
+        data = self.wellness(day, stored.get("persona"))
+        activity = data["activity"]
+        steps = activity.get("steps")
+        if steps is not None:
+            activity = {**activity, "steps_goal_pct": round(100 * steps / goals["steps"])}
+        meals = stored.get("meals", []) + persona_meals(stored.get("persona"), day)
+        return {"date": day, "now": self.now().isoformat(), **data, "activity": activity, "goals": goals,
+                "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
                 "upcoming": ([{"at": "18:15", "message": "Dinner idea"}] if self.store.demo else []) + [
                     {"at": order["arrival_date"], "message": "Shopee Mall eye mask delivery"}
                     for order in self.state["orders"].values()
@@ -115,10 +170,12 @@ class Zippy:
                 ] + [{"at": item["at"][-5:], "message": item["message"]}
                      for item in self.state["reminders"].values() if item["status"] == "scheduled"]}
 
-    def food_log(self, date):
-        meals = [meal for meal in self.state["food"] if meal["date"] == date] + persona_meals(self.state.get("persona"), date)
-        return {"date": date, "meals": meals, "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
-                "suggested": DINNER if self.store.demo and date == self.state["date"] else None}
+    def food_log(self, day):
+        stored = self.personal_data(day)
+        meals = stored.get("meals", []) + persona_meals(stored.get("persona"), day)
+        meals.sort(key=lambda meal: meal["time"])
+        return {"date": day, "meals": meals, "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
+                "suggested": None}
 
     def summary(self):
         today = self.today()
@@ -127,7 +184,7 @@ class Zippy:
         return {"kind": "daily_summary", "goals": [
             {"key": key, "value": values[key], "goal": goal,
              "met": values[key] <= goal if key in {"kcal", "carbs_g", "fat_g"} else values[key] >= goal}
-            for key, goal in today["goals"].items()
+            for key, goal in today["goals"].items() if values.get(key) is not None
         ]}
 
     async def proactive(self, moment, session_id, demo=False, resend=False):
@@ -143,10 +200,11 @@ class Zippy:
             values = {}
             items = []
             if moment == "morning_sleep":
+                sleep = self.sleep_card()
+                minutes = sleep["minutes"]
                 items = [
-                    {"card": self.sleep_card()},
-                    {"text": self.prompts.get(f"{key}.follow_up"), "quick_replies": ["Show me options", "Not now"]},
-                ]
+                    {"card": sleep},
+                ] if minutes is not None else []
             elif moment == "dinner_tip":
                 today = self.today()
                 protein = today["totals"]["protein_g"]
@@ -165,7 +223,7 @@ class Zippy:
                 else:
                     items.append({"text": "I couldn't find a place for this dish nearby."})
             elif moment == "weekly_recap":
-                recap = weekly_recap(self.state.get("persona"), self.state["profile"]["goals"])
+                recap = weekly_recap(self.health_persona(), self.state["profile"]["goals"])
                 name = self.state["profile"]["name"]
                 if recap:
                     values = {"days": recap["days"], "name": name, "headline": recap["insight"]}
@@ -179,6 +237,13 @@ class Zippy:
                 items = [{"card": self.summary()}]
             notification = self.prompts.render(f"{key}.notification", **values)
             intro = self.prompts.render(f"{key}.intro", **values)
+            if moment == "morning_sleep":
+                if minutes is None:
+                    intro = notification = "No recent sleep reading is recorded for your profile."
+                else:
+                    source = "The imported sample records" if sleep.get("source") == "Imported sample" else "You logged"
+                    intro = f"{source} {minutes // 60} h {minutes % 60} min of sleep."
+                    notification = intro
             session["moments"].append(moment)
             self.emit(session_id, {"text": intro, "notify": {
                 "title": TITLES[moment],
@@ -190,8 +255,28 @@ class Zippy:
         today = self.today()
         protein_gap = max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"])
         kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
-        meal = pick_meal(self.state.get("persona"), protein_gap, kcal_left, DINNER, meal_time=meal_time)
+        persona = self.health_persona() or {"profile": {}}
+        foods = read_food_catalog(self.store.database)
+        choices = food_candidates(foods, persona, self.state["profile"], self.food_log(today["date"])["meals"], today["date"])
+        if not choices:
+            raise RecommendationUnavailable("No suitable meals were found in the MongoDB food catalog.")
+        best = choices[0]
+        fallback = {key: best[key] for key in ("food_id", "dish", "kcal", "protein_g")}
+        fallback["why"] = "This option fits your meal preferences and nutrition goals."
+        meal = pick_meal(persona, protein_gap, kcal_left, fallback, meal_time=meal_time)
         return {"kind": "meal", **await self.with_image(meal, "dishes", meal["dish"])}
+
+    async def lookup_food_nutrition(self, query):
+        foods = await asyncio.to_thread(read_food_catalog, self.store.database)
+        if not foods:
+            raise RecommendationUnavailable("No food catalog is configured in MongoDB.")
+        food = match_catalog_food(foods, query)
+        if not food:
+            return None
+        nutrition = food.get("nutrition") or {}
+        return {"kind": "meal", "food_id": food.get("food_id"), "dish": food["menu"],
+                "kcal": number(nutrition.get("calories")), "protein_g": number(nutrition.get("protein_g")),
+                "carbs_g": number(nutrition.get("carbs_g")), "fat_g": number(nutrition.get("fat_g"))}
 
     async def recommend_meal(self, session_id, meal_time="dinner"):
         """The dinner tip: a dish, then the places that serve it."""
@@ -248,6 +333,22 @@ class Zippy:
         ]
         return places
 
+    async def recommendation_places(self, session_id, *, location=None):
+        session = self.state["sessions"].get(session_id, {})
+        meal = session.get("recommended_meal")
+        if not meal:
+            raise LookupError("Get a meal recommendation first.")
+        await self.find_places(session_id, meal["dish"], meal["calories"], meal["protein_g"], location=location)
+        if session.get("recommended_meal") is meal:
+            session.pop("recommended_meal")
+        card = self.places_card(session_id, location)
+        if not card["places"]:
+            return "I didn’t find a similar Shopee Food listing nearby.", card
+        text = f"These Shopee Food listings serve {meal['dish']} or a similar option."
+        if meal.get("allergies"):
+            text += " These listings don’t include verified allergen information."
+        return text, card
+
     async def chat(self, session_id, message, *, location=None):
         session = self.session(session_id)
         if self.store.demo:
@@ -266,6 +367,23 @@ class Zippy:
                 return
             yield {"type": "delta", "text": f"I compared {len(products)} shops on Shopee Mall. {products[0]['note']}."}
             yield {"type": "card", "card": self.product_card(products)}
+        elif session.get("recommended_meal") and answer == "skip":
+            session.pop("recommended_meal")
+            yield {"type": "delta", "text": "Okay."}
+        elif answer.rstrip("?.!") in {"recommend places nearby", "find places for this meal"} or (
+            session.get("recommended_meal") and answer.rstrip("?.!") in {
+            "show me nearby restaurants", "where can i get this",
+            "where can i get it", "where can i order this", "where can i order it",
+            "where can i find it", "where can i buy it", "find restaurants nearby",
+        }):
+            if not session.get("recommended_meal"):
+                yield {"type": "delta", "text": "Get a meal recommendation first."}
+                return
+            yield {"type": "tool", "name": "find_similar_dishes"}
+            text, card = await self.recommendation_places(session_id, location=location)
+            yield {"type": "delta", "text": text}
+            if card["places"]:
+                yield {"type": "card", "card": card}
         elif pending == "walk" and answer in {"yes", "yes, i'll walk", "i'll walk"}:
             session["pending"] = "book"
             name = session["places"][0]["name"]
@@ -284,15 +402,26 @@ class Zippy:
         elif answer in {"plan tomorrow's meals", "find lighter orders"}:
             for event in self.recap_answer(answer):
                 yield event
+        elif NUTRITION_LOOKUP.search(answer) and not NUTRITION_CONTEXT.search(answer):
+            yield {"type": "tool", "name": "lookup_food_nutrition"}
+            meal = await self.lookup_food_nutrition(message)
+            if meal is None:
+                yield {"type": "delta", "text": "I couldn’t find a matching dish in the food catalog. What’s the dish name?"}
+                return
+            fields = [field for field, (pattern, _) in CATALOG_NUTRIENTS.items() if re.search(pattern, answer)]
+            values = [f"{meal[field]:g} {CATALOG_NUTRIENTS[field][1]}"
+                      for field in (fields or CATALOG_NUTRIENTS) if meal[field] is not None]
+            if values:
+                text = f"The food catalog lists {', '.join(values)} for {meal['dish']}."
+            else:
+                text = f"The food catalog has an entry for {meal['dish']}, with no value for the nutrition you asked about."
+            yield {"type": "delta", "text": text}
+            yield {"type": "card", "card": meal}
         elif self.coach:
             async for event in self.coach.stream(self, session_id, message, session["history"], location=location):
                 yield event
         elif not self.store.demo and FOOD_SEARCH.search(answer):
-            today = self.today()
-            dinner = pick_meal(
-                self.state.get("persona"), max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"]),
-                today["goals"]["kcal"] - today["totals"]["kcal"], DINNER,
-            )
+            dinner = await self.meal_card()
             yield {"type": "tool", "name": "find_similar_dishes"}
             await self.find_places(session_id, dinner["dish"], dinner["kcal"], dinner["protein_g"], location=location)
             card = self.places_card(session_id, location)
@@ -303,8 +432,12 @@ class Zippy:
                 area = "your location" if location else "Silom, Bangkok"
                 yield {"type": "delta", "text": f"I couldn't find a matching dish near {area}."}
         elif "sleep" in answer:
-            yield {"type": "delta", "text": "Here's last night, from the moment you fell asleep."}
-            yield {"type": "card", "card": self.sleep_card()}
+            sleep = self.sleep_card()
+            if sleep["minutes"] is None:
+                yield {"type": "delta", "text": "No recent sleep reading is recorded for your profile."}
+                return
+            yield {"type": "delta", "text": f"Here’s the sleep reading for {sleep.get('date') or self.data_date()}."}
+            yield {"type": "card", "card": sleep}
             yield {"type": "quick_replies", "options": ["Show me options", "Not now"]}
         elif any(word in answer for word in ("step", "walk", "activity")):
             yield {"type": "delta", "text": "Here's your activity so far today."}
@@ -332,7 +465,7 @@ class Zippy:
 
     def recap_answer(self, answer):
         """Rule-based follow-ups to the weekly recap, built from the imported history."""
-        persona, goals = self.state.get("persona"), self.state["profile"]["goals"]
+        persona, goals = self.health_persona(), self.state["profile"]["goals"]
         if not persona:
             yield {"type": "delta", "text": "Import your health history in Profile first, then I can plan from it."}
             return

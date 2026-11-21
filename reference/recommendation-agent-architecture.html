@@ -23,10 +23,10 @@
       <section class="flow-branch">
         <h3>Food</h3>
         <ol>
-          <li>Read the S3 food catalog and rank meals.</li>
+          <li>Read the MongoDB food catalog and rank meals.</li>
           <li>Choose a meal from the shortlist.</li>
-          <li>Call Shopee Food <code>find_similar_dishes</code>.</li>
-          <li>Build a <code>meal</code> card and, when listings fit, a <code>places</code> card.</li>
+          <li>Build a <code>meal</code> card and save its pending restaurant query.</li>
+          <li>On a separate places request, call Shopee Food <code>find_similar_dishes</code>.</li>
         </ol>
       </section>
       <section class="flow-branch">
@@ -50,16 +50,30 @@
       <dt>Guest and session</dt>
       <dd><code>presenter_trigger</code> checks the presenter key. It matches display names case-insensitively, then runs once per matching guest ID. Each run targets that guest’s most recently updated session, with <code>presenter</code> as the default. <a href="../BE/main.py">Presenter route</a> · <a href="../BE/storage.py">Guest lookup</a></dd>
       <dt>Data and selection</dt>
-      <dd><code>load_recommendation_context</code> refreshes MongoDB data by guest ID and can load a bucket persona if history is missing. <code>choose</code> uses the first candidate without a model. With a model configured, OpenAI returns an index into the shortlist and the backend validates it. The prompts are <code>recommendation.food</code> and <code>recommendation.item</code>. <a href="../BE/recommendations.py">Context and choice</a> · <a href="../BE/zippy_assets/prompts.yaml">Prompts</a></dd>
+      <dd><code>load_recommendation_context</code> loads the profile, persona, and meals from MongoDB by guest ID. <code>choose</code> uses the first candidate without a model. With a model configured, OpenAI returns an index into the shortlist and the backend validates it. The prompts are <code>recommendation.food</code> and <code>recommendation.item</code>. <a href="../BE/recommendations.py">Context and choice</a> · <a href="../BE/zippy_assets/prompts.yaml">Prompts</a></dd>
       <dt>Food candidates and listings</dt>
-      <dd><code>food_candidates</code> filters and ranks up to 12 catalog meals using goals, logged meals, preferences, and available allergen tags. After selection, <code>food</code> searches Shopee Food and keeps up to three distinct restaurants within budget. The restaurant prices come from the Shopee results. <a href="../BE/recommendations.py">Food implementation</a></dd>
+      <dd><code>food_candidates</code> filters and ranks up to 12 catalog meals using goals, logged meals, preferences, and available allergen tags. After selection, <code>food</code> publishes a meal. A later places request runs <code>find_places</code>, which takes up to three distinct restaurants, ranked by protein, distance and price, using the Shopee results. <a href="../BE/recommendations.py">Food implementation</a></dd>
       <dt>Item candidates and listings</dt>
-      <dd><code>item</code> can suggest an eye mask for short sleep or a foam roller when recent activity meets the goal. It can use Ploy’s demo sleep or offer a general eye-mask suggestion. Shopee Mall supplies product facts. The backend takes up to four results, sorting them by rating descending and then price ascending. <a href="../BE/recommendations.py">Item implementation</a></dd>
+      <dd><code>item</code> can suggest an eye mask for short sleep or a foam roller when recent activity meets the goal. With sleep data at goal, it can still frame an eye mask as optional. When no qualifying reading is available, it asks for health history through an error response. Shopee Mall supplies product facts. The backend takes up to four results, sorting them by rating descending and then price ascending. <a href="../BE/recommendations.py">Item implementation</a></dd>
       <dt>Publishing and rendering</dt>
       <dd><code>Zippy.recommend</code> allows one recommendation at a time per guest and guards against publishing after a guest reset. It saves item products to the session for the existing Buy route and emits a notification plus cards. The browser polls the feed and maps card kinds to UI. Push can deliver the notification to subscribed devices. <a href="../BE/service.py">Service</a> · <a href="../FE/app.js">Feed polling</a> · <a href="../FE/services.js">Card mapping</a></dd>
     </dl>
   </section>
-  <footer><a href="recommendation-data-sources.html">Data source reference</a> · <a href="reusable-storage-functions.html">Reusable storage functions</a></footer>
+  <section id="http-api">
+    <h2>HTTP entry points</h2>
+    <dl>
+      <dt><code>POST /presenter/trigger</code></dt>
+      <dd>Send <code>{guest_name, agent}</code> with <code>X-Presenter-Key</code>. Use <code>food</code> or <code>item</code>. The response reports trigger status and guest/device counts. The recommendations are published to the matching guests’ feeds. <a href="../BE/main.py">Presenter handler</a></dd>
+      <dt><code>POST /recommendations/food</code></dt>
+      <dd>Send <code>{session_id}</code> as the current guest. The route calls <code>Zippy.recommend</code> with <code>food</code>, publishes the meal, saves its pending restaurant query, and returns <code>{session_id, items}</code>. <a href="../BE/main.py">Food handler</a> · <a href="../BE/service.py">Shared service</a></dd>
+      <dt><code>POST /recommendations/food/places</code></dt>
+      <dd>Send the same <code>session_id</code>, with optional <code>location: {lat, lng}</code>. Returns <code>{text, card}</code>, defaults to Silom, and consumes the pending query after the lookup. Returns 404 if there is no pending meal. Demo sessions use Silom. <a href="../BE/main.py">Places handler</a> · <a href="../BE/service.py">Pending meal lookup</a></dd>
+      <dt><code>GET /recommendations/health-history</code></dt>
+      <dd>Optional inclusive <code>start</code> and <code>end</code> dates select wearable readings, workouts, weights, and body composition. The default is 14 days ending today, and the maximum is 90 days. The route returns only the current guest’s data and sets <code>Cache-Control: no-store</code>. <a href="../BE/main.py">Health history handler</a></dd>
+    </dl>
+    <p>Item recommendations are available through the shared presenter endpoint. There is no current guest-scoped <code>POST /recommendations/item</code>. Browser calls use the <code>/api</code> prefix through Caddy, which adds the backend token. The guest routes use the session cookie. <a href="../FE/Caddyfile">Proxy</a> · <a href="../FE/CHAT_API.md">HTTP contract</a></p>
+  </section>
+  <footer><a href="../lessons/0005-call-the-recommendation-api.html">Recommendation HTTP API lesson</a> · <a href="recommendation-data-sources.html">Data source reference</a> · <a href="reusable-storage-functions.html">Reusable storage functions</a></footer>
 </main>
 </body>
 </html>

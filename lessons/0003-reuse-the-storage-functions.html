@@ -13,32 +13,32 @@
     <nav aria-label="Course materials"><a href="0002-trace-the-recommendation-bucket.html">Bucket lesson</a><a href="../reference/reusable-storage-functions.html">Function reference</a></nav>
     <p class="meta">Lesson 3 · 4 minutes</p>
     <h1>Reuse the storage functions</h1>
-    <p>Pick an existing helper for a new agent that needs a guest’s recent data and a JSON catalog.</p>
+    <p>Pick an existing helper for a new agent that needs a guest’s recent data and the MongoDB catalog.</p>
   </header>
   <section>
     <h2>Follow the calls</h2>
     <ol>
-      <li><strong>Separate setup from use.</strong> <code>create_app</code> builds the MongoDB client and the S3 adapter at startup. The normal MongoDB connection comes from <code>MONGO_URL</code>. A configured <code>RECOMMENDATION_MONGO_URL</code> supplies the agents’ separate read connection. <a href="../BE/main.py">Startup</a></li>
-      <li><strong>Reuse the existing context loader.</strong> Both agents call <code>load_recommendation_context</code>. It calls <code>read_guest_recommendation_data</code> for fresh data by guest ID and looks up a bucket persona when no persona is available. <a href="../BE/recommendations.py">Agent entry point</a> · <a href="../BE/storage.py">MongoDB query</a></li>
-      <li><strong>Read the catalog explicitly.</strong> The food agent calls <code>await self.data.read("body_data/food_db.json")</code>. <code>self.data</code> is the configured <code>BucketRecommendationData</code> adapter. The read returns parsed JSON. <a href="../BE/recommendations.py">S3 reader and catalog caller</a></li>
+      <li><strong>Separate setup from use.</strong> <code>create_app</code> builds the MongoDB client and the S3 adapter at startup. The database comes from <code>MONGO_URL</code> or is injected by the test harness. <a href="../BE/main.py">Startup</a></li>
+      <li><strong>Reuse the existing context loader.</strong> Both agents call <code>load_recommendation_context</code>. It calls <code>read_guest_recommendation_data</code> for fresh profile, persona and meal data by guest ID. <a href="../BE/recommendations.py">Agent entry point</a> · <a href="../BE/storage.py">MongoDB query</a></li>
+      <li><strong>Read the catalog explicitly.</strong> The food agent calls <code>await self.food_catalog()</code>, which uses <code>read_food_catalog(database)</code> to fetch the MongoDB catalog. <a href="../BE/recommendations.py">Catalog caller</a></li>
     </ol>
-    <p>For a regular guest update, follow <code>put_persona</code>. It receives the guest-scoped service, updates its state and calls <code>zippy.store.save()</code>. That works with MongoDB and with the local JSON store. <a href="../BE/main.py">Example route</a> · <a href="../BE/storage.py">Store selection</a></p>
+    <p>For a regular guest update, follow <code>put_persona</code>. It receives the guest-scoped service, updates its state and calls <code>zippy.store.save()</code>. The guest store persists the change to MongoDB. <a href="../BE/main.py">Example route</a> · <a href="../BE/storage.py">Store selection</a></p>
   </section>
   <section>
     <h2>Choose the helper</h2>
     <fieldset data-quiz>
       <legend>A new agent needs the same merged context as the two presenter agents. Which function should you use?</legend>
       <div class="choices">
-        <button type="button" aria-pressed="false" data-feedback="This reads the MongoDB portion. The context loader also handles local state and the bucket fallback.">read_guest_recommendation_data</button>
+        <button type="button" aria-pressed="false" data-feedback="This is the query underneath the async loader. The loader also computes wearable signals.">read_guest_recommendation_data</button>
         <button type="button" aria-pressed="false" data-feedback="This writes guest state. The new agent only needs to read context.">MongoStore.save</button>
-        <button type="button" aria-pressed="false" data-feedback="Correct. Both presenter agents already use this loader to combine guest state, MongoDB and optional bucket data.">load_recommendation_context</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. Both presenter agents already use this loader to fetch guest data and compute wearable signals.">load_recommendation_context</button>
       </div>
       <p class="feedback" role="status"></p>
     </fieldset>
     <fieldset data-quiz>
-      <legend>Your handler needs the contents of a JSON object. Which method returns parsed data?</legend>
+      <legend>Your handler needs the food catalog rows. Which function reads them?</legend>
       <div class="choices">
-        <button type="button" aria-pressed="false" data-feedback="Correct. BucketRecommendationData.read calls get_object and parses its body as JSON.">BucketRecommendationData.read</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. read_food_catalog reads the food_db document in MongoDB.">read_food_catalog</button>
         <button type="button" aria-pressed="false" data-feedback="This returns a signed catalog image URL when it finds an eligible image.">BucketRecommendationData.catalog_image_url</button>
         <button type="button" aria-pressed="false" data-feedback="This signs a URL for an uploaded meal photo.">MealPhotos.url</button>
       </div>
@@ -46,7 +46,7 @@
     </fieldset>
     <details>
       <summary>Answer key</summary>
-      <p>Use <code>load_recommendation_context</code> for the merged guest data and <code>BucketRecommendationData.read</code> for a JSON object.</p>
+      <p>Use <code>load_recommendation_context</code> for the guest context and <code>read_food_catalog</code> for the MongoDB catalog.</p>
     </details>
   </section>
   <footer>

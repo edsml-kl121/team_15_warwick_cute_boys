@@ -128,13 +128,15 @@
       const proteinLeft = Math.max(0, goals.protein_g - totals.protein_g);
       const rows = [
         ['Sleep', duration(sleep.minutes), `of ${duration(goals.sleep_minutes)}`, pct(sleep.minutes, goals.sleep_minutes),
-          `Deep ${duration(sleep.deep_minutes)} of ${duration(goals.deep_minutes)}`],
+          Number.isFinite(sleep.deep_minutes) ? `Deep ${duration(sleep.deep_minutes)} of ${duration(goals.deep_minutes)}`
+            : Number.isFinite(sleep.minutes) ? '' : 'No recent sleep reading'],
         ['Protein', `${fmt(totals.protein_g)} g`, `of ${fmt(goals.protein_g)} g`, pct(totals.protein_g, goals.protein_g),
           proteinLeft ? `${proteinLeft} g to go${dinner ? ` · dinner idea at ${dinner.at}` : ''}` : 'Goal reached'],
         ['Calories', fmt(totals.kcal), `of ${fmt(goals.kcal)} kcal`, pct(totals.kcal, goals.kcal),
           `${fmt(Math.max(0, goals.kcal - totals.kcal))} kcal left`],
         ['Active minutes', fmt(activity.active_minutes), `of ${fmt(goals.active_minutes)} min`, pct(activity.active_minutes, goals.active_minutes),
-          `${fmt(activity.steps)} steps${Number.isFinite(activity.sitting_hours) ? ` · ${activity.sitting_hours} h sitting` : ''}`],
+          Number.isFinite(activity.steps) ? `${fmt(activity.steps)} steps${Number.isFinite(activity.sitting_hours) ? ` · ${activity.sitting_hours} h sitting` : ''}`
+            : 'No steps recorded today'],
       ];
       const bars = recovery.bars || [];
       const [mood, ...why] = (recovery.note || '').split(' · ');
@@ -150,7 +152,7 @@
         h('div', { class: 'gb page-body' },
           h('div', { class: 'card pad' },
             h('div', { class: 'split' },
-              h('div', {}, h('span', { class: 'lbl', text: 'Recovery' }), h('span', { class: 'hero', text: `${recovery.percent}%` })),
+              h('div', {}, h('span', { class: 'lbl', text: 'Recovery' }), h('span', { class: 'hero', text: Number.isFinite(recovery.percent) ? `${recovery.percent}%` : '–' })),
               h('div', { class: 'split-end' },
                 h('span', { class: 'mood' }, icon('self_improvement', 'font-size:16px;color:#715c16'), mood),
                 h('span', { class: 'mut', text: [sleep.source, ...why].filter(Boolean).join(' · ') }))),
@@ -170,6 +172,7 @@
 
     // Food log -------------------------------------------------------------
     const MEAL_SOURCES = {
+      imported_sample: ['restaurant', () => 'Imported sample'],
       photo: ['photo_camera', () => 'From your photo'],
       chat: ['chat', () => 'From chat'],
       shopee_food: ['storefront', meal => ['Shopee Food', meal.place].filter(Boolean).join(' · ')],

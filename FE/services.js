@@ -151,19 +151,24 @@
             };
           }), note: 'Menus and nutrition from Shopee Food' }];
       case 'sleep_insight':
-        return [{ title: 'Deep sleep', icon: 'bedtime', value: duration(data.deep_minutes),
-          description: data.shortfall_minutes > 0 ? `${duration(data.shortfall_minutes)} short of your ${duration(data.goal_minutes)} goal` : 'Deep sleep goal met',
+        return [{ title: Number.isFinite(data.deep_minutes) ? 'Deep sleep' : 'Sleep', icon: 'bedtime',
+          value: duration(data.deep_minutes ?? data.minutes),
+          description: Number.isFinite(data.shortfall_minutes)
+            ? (data.shortfall_minutes > 0 ? `${duration(data.shortfall_minutes)} short of your ${duration(data.goal_minutes)} goal` : 'Deep sleep goal met')
+            : (Number.isFinite(data.minutes) ? null : 'No recent sleep reading'),
           timeline: (data.timeline || []).filter(([stage, minutes]) => typeof stage === 'string' && Number.isFinite(minutes))
             .map(([stage, minutes]) => ({ stage, minutes })),
           chips: (data.events || []).map(event => `${event.at} ${event.label}`),
           rows: Object.entries(data.totals || {}).map(([stage, minutes]) => row(stage === 'rem' ? 'REM' : stage[0].toUpperCase() + stage.slice(1), duration(minutes))),
-          note: [data.source, data.minutes && `${duration(data.minutes)} asleep`, data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
+          note: [data.date, data.source, data.minutes && Number.isFinite(data.deep_minutes) && `${duration(data.minutes)} asleep`,
+            data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
       case 'meal': {
         const query = new URLSearchParams(data.food_id ? { food_id: data.food_id } : { dish: data.dish });
         return [{ title: data.dish, icon: 'restaurant', value: amount(data.protein_g, 'g protein'), description: data.why,
           imageUrl: data.image_url || (!data.food_id && localImage(data.dish))
             || (base && data.dish ? urlFor('food-log/catalog-image?' + query).href : null),
-          rows: [row('Energy', amount(data.kcal, 'kcal'))] }];
+          rows: [row('Energy', amount(data.kcal, 'kcal')), row('Carbs', amount(data.carbs_g, 'g')),
+            row('Fat', amount(data.fat_g, 'g'))] }];
       }
       case 'activity':
         return [{ title: 'Steps today', icon: 'directions_walk', value: amount(data.steps, '')?.trim(),
@@ -234,6 +239,7 @@
     show_products: ['Checking Shopee Mall…', 'Comparing products for you…'],
     search_products: ['Checking Shopee Mall…', 'Comparing products for you…'],
     recommend_meal: ['Picking a dish for you…', 'Matching a meal to your protein goal…'],
+    lookup_food_nutrition: ['Checking the food catalog…'],
     find_similar_dishes: ['Finding places nearby…', 'Checking Shopee Food…'],
     book_table_by_phone: ['Getting ready to call…', 'Setting up the booking call…'],
     get_sleep_last_night: ['Looking at last night’s sleep…'],
@@ -249,7 +255,19 @@
     return options[Math.min(options.length - 1, Math.floor(random() * options.length))];
   }
 
+  const referencePages = new Map([
+    ['food_log', { href: '#food', label: 'Food log' }],
+    ['profile', { href: '#profile', label: 'Profile goals' }],
+    ['health_data', { href: '#profile', label: 'Health data in Profile' }],
+    ['today', { href: '#today', label: 'Today’s sleep summary' }],
+  ]);
+
+  function referenceLinks(references) {
+    if (!Array.isArray(references)) return [];
+    return references.map(reference => referencePages.get(reference)).filter(Boolean);
+  }
+
   window.zippyService = {
-    chat, cards, json, photo, demo, currentLocation, waitingMessage, transcribe: transcription ? transcribe : null,
+    chat, cards, json, photo, demo, currentLocation, waitingMessage, referenceLinks, transcribe: transcription ? transcribe : null,
   };
 })();

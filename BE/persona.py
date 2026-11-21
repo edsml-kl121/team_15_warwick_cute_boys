@@ -73,6 +73,8 @@ def apply_to_profile(profile, persona):
 
 
 def _meal_source(entry):
+    if entry.get("source") == "imported_sample":
+        return "imported_sample", None
     if entry.get("channel") == "shopee_food_order":
         return "shopee_food", (entry.get("order") or {}).get("restaurant")
     return ("photo" if (entry.get("agent_call") or {}).get("logged_via") == "photo" else "chat"), None
@@ -123,6 +125,7 @@ def recommendation_context(persona):
         "profile": {key: profile[key] for key in keep if key in profile},
         "recent_meals": [
             {"date": entry.get("date"), "meal": entry.get("meal_time"), "name": entry.get("meal_name"),
+             "source": entry.get("source"),
              "restaurant": (entry.get("order") or {}).get("restaurant"),
              "calories": (entry.get("meal_totals") or {}).get("calories"),
              "protein_g": (entry.get("meal_totals") or {}).get("protein_g")}

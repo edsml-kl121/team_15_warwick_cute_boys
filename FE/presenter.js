@@ -5,7 +5,7 @@
   // the real notification text comes from the backend's feed item.
   const FLOWS = [
     { scene: 'Recommendation agents', name: 'Recommend food', body: { agent: 'food' },
-      needs: 'Uses the guest’s food and health history, then checks Shopee Food for nearby matches.' },
+      needs: 'Suggests a meal from the guest’s history. Guests can ask for nearby places in chat.' },
     { scene: 'Recommendation agents', name: 'Recommend an item', body: { agent: 'item' },
       needs: 'Uses recent sleep or activity to find a relevant product on Shopee Mall.' },
     { scene: 'Scene 1 · 07:02', name: 'Morning sleep insight', body: { moment: 'morning_sleep' },

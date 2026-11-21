@@ -1,55 +1,22 @@
-import json
 import os
 from copy import deepcopy
-from datetime import datetime, timezone
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 
-from demo import Clock, seed
+from demo import PROFILE
 
 
 DATASET = "ploy-v1"
 RECORDS = {"meals": "food", "orders": "orders", "bookings": "bookings", "reminders": "reminders"}
-COLLECTIONS = ("guests", "wellness_days", "sessions", "session_events", *RECORDS)
+COLLECTIONS = ("guests", "wellness_days", "sessions", "session_events", "food_catalog", "guest_health_imports", *RECORDS)
 
 
-def initial_state(date, demo, profile=None):
-    state = seed(date)
-    if not demo:
-        state["profile"].update(profile or {})
-        state["food"] = []
-    return state
+def initial_state(date, profile=None):
+    return {
+        "profile": {**deepcopy(PROFILE), **(profile or {})}, "date": date, "clock": None,
+        "food": [], "orders": {}, "bookings": {}, "reminders": {}, "sessions": {},
+    }
 
 
-class JsonStore:
-    def __init__(self, directory, date, *, demo=True, profile=None, owner=None):
-        self.path = Path(directory) / "demo.json"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.demo = demo
-        self.owner = owner
-        self.state = json.loads(self.path.read_text()) if self.path.exists() else initial_state(date, demo, profile)
-
-    def save(self):
-        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent, delete=False) as temporary:
-            try:
-                json.dump(self.state, temporary, ensure_ascii=False)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                os.replace(temporary.name, self.path)
-            finally:
-                Path(temporary.name).unlink(missing_ok=True)
-
-    def reset(self, date):
-        previous = self.state
-        self.state = seed(date)
-        try:
-            self.save()
-        except Exception:
-            self.state = previous
-            raise
-
-
-def initialize_mongo(database, date):
+def initialize_mongo(database):
     from pymongo.errors import CollectionInvalid
 
     existing = set(database.list_collection_names())
@@ -66,10 +33,6 @@ def initialize_mongo(database, date):
     for name in ("orders", "bookings", "reminders"):
         database[name].create_index("guest_id")
     database.bookings.create_index("id")
-    database.wellness_days.update_one(
-        {"dataset_id": DATASET, "date": date},
-        {"$setOnInsert": seed(date)["day_data"][date]}, upsert=True,
-    )
 
 
 def read_guest_recommendation_data(database, owner, day):
@@ -77,12 +40,30 @@ def read_guest_recommendation_data(database, owner, day):
     guest = database.guests.find_one({"_id": owner}, {"_id": 0, "profile": 1, "persona": 1})
     if guest is None:
         return None
+    persona = guest.get("persona")
+    if persona:
+        for field, marker, prefix in (
+            ("wearable_daily", "import_id", "initial-wellness-"),
+            ("food_history_log", "log_id", "initial-meal-"),
+        ):
+            recorded, samples = [], []
+            for row in persona.get(field, []):
+                if str(row.get(marker, "")).startswith(prefix):
+                    samples.append({**row, "source": "imported_sample"})
+                else:
+                    recorded.append(row)
+            persona[field] = recorded or samples
     return {
         **guest,
         "meals": list(database.meals.find(
-            {"guest_id": owner, "date": day}, {"_id": 0, "guest_id": 0, "photo_key": 0},
+            {"guest_id": owner, "date": day, "id": {"$not": {"$regex": "^seed-"}}}, {"_id": 0, "guest_id": 0},
         )),
     }
+
+
+def read_food_catalog(database):
+    catalog = database.food_catalog.find_one({"_id": "food_db"}, {"_id": 0, "foods": 1})
+    return catalog.get("foods", []) if catalog else []
 
 
 class MongoStore:
@@ -90,7 +71,7 @@ class MongoStore:
 
     def __init__(self, database, owner, date, *, demo, profile=None):
         self.database, self.owner, self.demo = database, owner, demo
-        self.state = initial_state(date, demo, profile)
+        self.state = initial_state(date, profile)
         self.saved = {}
         guest = database.guests.find_one({"_id": owner})
         if guest:
@@ -99,15 +80,22 @@ class MongoStore:
                 if guest.get(key):
                     self.state[key] = guest[key]
             self.load_records()
-        source_day = database.wellness_days.find_one(
-            {"dataset_id": DATASET, "date": self.state["date"]}, {"_id": 0, "dataset_id": 0, "date": 0},
-        )
-        if source_day is None:
-            raise RuntimeError("The mock wellness day has not been seeded.")
-        self.state["day_data"] = {self.state["date"]: source_day}
         if guest:
             self.saved = deepcopy(self.documents())
-        else:
+        if not demo and not self.state.get("persona"):
+            name = self.state["profile"]["name"]
+            template = database.guest_health_imports.find_one({"_id": name.strip().casefold()})
+            if template:
+                day = self.state["date"]
+                self.state["persona"] = {
+                    "profile": {"persona_id": owner[:40], "display_name": name},
+                    "wearable_daily": [{**row, "date": day} for row in template["wearable_daily"]],
+                    "food_history_log": [{**row, "date": day, "timestamp": day + row["timestamp"][10:]}
+                                         for row in template["food_history_log"]],
+                }
+                self.save()
+                return
+        if not guest:
             self.save()
 
     def load_records(self):
@@ -140,7 +128,7 @@ class MongoStore:
 
     def documents(self):
         state = self.state
-        docs = {name: {} for name in COLLECTIONS if name != "wellness_days"}
+        docs = {name: {} for name in ("guests", "sessions", "session_events", *RECORDS)}
         docs["guests"][self.owner] = {
             **{key: state[key] for key in ("profile", "date", "clock")},
             **{key: state[key] for key in ("persona", "push_subscriptions") if state.get(key)},
@@ -169,7 +157,18 @@ class MongoStore:
             collection = self.database[name]
             for key, value in rows.items():
                 if previous.get(key) != value:
-                    collection.replace_one({"_id": key}, {"_id": key, **value}, upsert=True)
+                    old = previous.get(key)
+                    if name == "guests" and old is not None:
+                        changed = {field: item for field, item in value.items() if old.get(field) != item}
+                        removed_fields = {field: "" for field in old.keys() - value.keys()}
+                        updates = {}
+                        if changed:
+                            updates["$set"] = changed
+                        if removed_fields:
+                            updates["$unset"] = removed_fields
+                        collection.update_one({"_id": key}, updates)
+                    else:
+                        collection.replace_one({"_id": key}, {"_id": key, **value}, upsert=True)
             removed = list(previous.keys() - rows.keys())
             if removed:
                 collection.delete_many({"_id": {"$in": removed}})
@@ -177,8 +176,10 @@ class MongoStore:
 
     def reset(self, date):
         previous = self.state
-        self.state = seed(date)
-        self.state["day_data"] = previous["day_data"]
+        self.state = initial_state(date, previous["profile"])
+        if "persona" in previous:
+            self.state["persona"] = previous["persona"]
+        self.state["food"] = previous["food"]
         try:
             self.save()
         except Exception:
@@ -187,46 +188,24 @@ class MongoStore:
 
 
 class VisitorStores:
-    def __init__(self, directory, date, database=None):
-        self.directory, self.date, self.database = Path(directory), date, database
+    def __init__(self, date, database):
+        self.date, self.database = date, database
 
     def open(self, owner, *, demo, profile=None, create=False):
-        if self.database is not None:
-            if not create and not self.database.guests.find_one({"_id": owner}, {"_id": 1}):
-                return None
-            return MongoStore(self.database, owner, self.date, demo=demo, profile=profile)
-        directory = self.directory / "visitors" / owner
-        if not create and not (directory / "demo.json").exists():
+        if not create and not self.database.guests.find_one({"_id": owner}, {"_id": 1}):
             return None
-        store = JsonStore(directory, self.date, demo=demo, profile=profile, owner=owner)
-        if create:
-            store.save()
-        return store
+        return MongoStore(self.database, owner, self.date, demo=demo, profile=profile)
 
     def find_owners(self, name):
         """Guest owners whose profile name matches, case-insensitively."""
-        wanted = name.strip().casefold()
-        if self.database is not None:
-            import re
+        import re
 
-            pattern = {"$regex": f"^{re.escape(name.strip())}$", "$options": "i"}
-            return [doc["_id"] for doc in self.database.guests.find({"profile.name": pattern}, {"_id": 1})]
-        return [path.parent.name for path in (self.directory / "visitors").glob("*/demo.json")
-                if json.loads(path.read_text())["profile"]["name"].strip().casefold() == wanted]
+        pattern = {"$regex": f"^{re.escape(name.strip())}$", "$options": "i"}
+        return [doc["_id"] for doc in self.database.guests.find({"profile.name": pattern}, {"_id": 1})]
 
     def booking_owner(self, booking_id):
-        if self.database is not None:
-            doc = self.database.bookings.find_one({"id": booking_id}, {"guest_id": 1})
-            return doc["guest_id"] if doc else None
-        for path in (self.directory / "visitors").glob("*/demo.json"):
-            if booking_id in json.loads(path.read_text())["bookings"]:
-                return path.parent.name
-        return None
-
-
-class DemoHealth:
-    def today(self, state, date):
-        return state["day_data"].get(date, state["day_data"][state["date"]])
+        doc = self.database.bookings.find_one({"id": booking_id}, {"guest_id": 1})
+        return doc["guest_id"] if doc else None
 
 
 if __name__ == "__main__":
@@ -234,8 +213,7 @@ if __name__ == "__main__":
     from pymongo import MongoClient
 
     load_dotenv()
-    clock = Clock(os.getenv("DEMO_NOW") or None)
     with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=5000) as client:
         database = client[os.getenv("MONGO_DATABASE") or "zippy"]
-        initialize_mongo(database, clock.now().date().isoformat())
+        initialize_mongo(database)
         print(f"Initialized {database.name}: {', '.join(COLLECTIONS)}")

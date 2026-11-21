@@ -16,14 +16,14 @@
   <dl>
     <dt>Fresh profile, persona and meals for one day</dt>
     <dd><code>read_guest_recommendation_data(database, owner, day)</code> performs synchronous MongoDB reads. Supply the authenticated guest ID and the configured database. It returns the guest’s profile, persona and meals dated that day, or <code>None</code> when the guest is absent. The async context loader runs it with <code>asyncio.to_thread</code>. <a href="../BE/storage.py">MongoDB helper</a> · <a href="../BE/recommendations.py">Async caller</a></dd>
-    <dt>Recommendation context from both stores</dt>
-    <dd><code>await load_recommendation_context(visitor, bucket, food=True, database=...)</code> merges stored and current meals by ID, loads a bucket persona if needed and returns <code>(profile, persona, wearable, logged, day)</code>. Use <code>food=False</code> for the item path. The food catalog is loaded by a separate read. <a href="../BE/recommendations.py">Context loader and callers</a></dd>
+    <dt>Recommendation context</dt>
+    <dd><code>await load_recommendation_context(visitor, database)</code> returns <code>(profile, persona, wearable, logged, day)</code> to both agents. The food catalog is loaded by a separate read. <a href="../BE/recommendations.py">Context loader and callers</a></dd>
     <dt>Persist existing guest state</dt>
-    <dd>Use <code>zippy.store.save()</code> through the guest-scoped service. <code>VisitorStores.open</code> chooses the backend. The <code>put_persona</code> route shows how to use <code>Depends(service)</code> and take <code>zippy.mutation</code> around a state update. <a href="../BE/main.py">Guest API pattern</a> · <a href="../BE/storage.py">Persistence</a></dd>
-    <dt>Load JSON from the S3-compatible bucket</dt>
-    <dd><code>await data.read(key)</code> on <code>BucketRecommendationData</code> calls S3 <code>get_object</code>, parses JSON and caches it for five minutes. The FastAPI startup code wires the adapter into <code>app.state.recommendations.data</code>. <a href="../BE/recommendations.py">Reader</a> · <a href="../BE/main.py">Startup and route usage</a></dd>
+    <dd>Use <code>zippy.store.save()</code> through the guest-scoped service. <code>VisitorStores.open</code> opens the MongoDB guest store. The <code>put_persona</code> route shows how to use <code>Depends(service)</code> and take <code>zippy.mutation</code> around a state update. <a href="../BE/main.py">Guest API pattern</a> · <a href="../BE/storage.py">Persistence</a></dd>
+    <dt>Load the food catalog</dt>
+    <dd><code>read_food_catalog(database)</code> reads the MongoDB catalog. In async agent code, <code>await agents.food_catalog()</code> wraps that query and handles unavailable data. <a href="../BE/storage.py">Reader</a> · <a href="../BE/recommendations.py">Async wrapper</a></dd>
     <dt>Display a private image</dt>
-    <dd><code>MealPhotos.url(key)</code> signs an uploaded meal photo URL. <code>await data.catalog_image_url(food_id, dish)</code> looks up a catalog image, validates its bucket path and signs the URL. <a href="../BE/integrations.py">Meal photos</a> · <a href="../BE/recommendations.py">Catalog images</a></dd>
+    <dd><code>MealPhotos.url(key)</code> signs an uploaded meal photo URL. <code>await agents.catalog_image_url(food_id, dish)</code> looks up a catalog image, validates its bucket path and signs the URL. <a href="../BE/integrations.py">Meal photos</a> · <a href="../BE/recommendations.py">Catalog images</a></dd>
     <dt>Upload a meal photo</dt>
     <dd><code>await MealPhotos.read(image, key)</code> prepares the photo, runs nutrition estimation and calls S3 <code>put_object</code> when a bucket is configured. This helper is for the meal scan workflow. <a href="../BE/integrations.py">Photo scan and storage</a></dd>
   </dl>

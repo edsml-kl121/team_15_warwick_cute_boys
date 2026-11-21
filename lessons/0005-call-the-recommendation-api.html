@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Call the recommendation API</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <nav aria-label="Course materials"><a href="0004-trace-the-recommendation-agents.html">Agent lesson</a><a href="../reference/recommendation-agent-architecture.html#http-api">API reference</a></nav>
+    <p class="meta">Lesson 5 · 5 minutes</p>
+    <h1>Call the recommendation API</h1>
+    <p>Choose the route based on who initiates the recommendation and whether they want a meal, nearby places, or an item.</p>
+  </header>
+  <section>
+    <h2>One presenter route for both agents</h2>
+    <p>Both presenter buttons call <code>POST /api/presenter/trigger</code> with the presenter key. The <code>agent</code> field selects the workflow. FastAPI runs it for each matching guest and publishes the result to their feed. <a href="../FE/presenter.js">Browser call</a> · <a href="../BE/main.py">Presenter handler</a></p>
+    <pre><code>{"guest_name":"Ploy","agent":"food"}
+{"guest_name":"Ploy","agent":"item"}</code></pre>
+    <p><code>Zippy.recommend</code> is the shared backend method. It calls <code>RecommendationAgents.run</code>, which reads the current guest from MongoDB and dispatches to the selected branch. Food ranks catalog meals and saves a meal for a follow-up search. Item uses wearable signals to pick a search query, calls Shopee Mall, and stores the comparison’s product IDs for Buy. <a href="../BE/service.py">Shared service</a> · <a href="../BE/recommendations.py">Agent branches</a></p>
+  </section>
+  <section>
+    <h2>The guest’s food and history routes</h2>
+    <ol>
+      <li><code>POST /api/recommendations/food</code> with <code>{"session_id":"my-chat"}</code> creates and posts a meal card. This calls the same food branch as the presenter.</li>
+      <li><code>POST /api/recommendations/food/places</code> with that same session ID runs Shopee Food for the pending dish. Add <code>location</code> with <code>lat</code> and <code>lng</code> to search near the current location outside demo mode.</li>
+      <li><code>GET /api/recommendations/health-history</code> reads the guest’s history. Add inclusive <code>start</code> and <code>end</code> dates to select up to 90 days.</li>
+    </ol>
+    <p>Guest calls use the session cookie. To trigger an item recommendation over HTTP, use the presenter route with <code>agent: "item"</code>. <a href="../FE/CHAT_API.md">Primary reading · HTTP contract</a> · <a href="../BE/main.py">Guest handlers</a></p>
+  </section>
+  <section>
+    <h2>Check the handoff</h2>
+    <fieldset data-quiz>
+      <legend>Which route can trigger either recommendation with the agent field?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="This guest route always runs the food branch.">The food endpoint</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. The presenter passes food or item in the agent field.">The presenter endpoint</button>
+        <button type="button" aria-pressed="false" data-feedback="This reads the current guest’s date-filtered history.">The history endpoint</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <fieldset data-quiz>
+      <legend>You received a meal card. What should you send to get nearby restaurants?</legend>
+      <div class="choices">
+        <button type="button" aria-pressed="false" data-feedback="The food request stored the pending dish under this session ID. Use that same ID for the places call.">A new session</button>
+        <button type="button" aria-pressed="false" data-feedback="Places uses the most recent pending dish in the session. Dates are for the history route.">A date range</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. The places route reads and consumes the pending dish in that session.">The same session</button>
+      </div>
+      <p class="feedback" role="status"></p>
+    </fieldset>
+    <details><summary>Answer key</summary><p>The presenter endpoint dispatches both agents. The places endpoint uses the same session as the meal request.</p></details>
+    <p>Ask me to trace one of these requests through the handler and its test if you want to see the full call chain. <a href="../BE/tests/test_zippy.py">Offline scenarios</a></p>
+  </section>
+</main>
+</body>
+</html>

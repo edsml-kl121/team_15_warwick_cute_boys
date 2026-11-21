@@ -100,6 +100,14 @@ test('chat can attach a rounded device location and falls back when access is de
   assert.equal(await demo.currentLocation(), null);
 });
 
+test('recommendation references only link to supported Zippy pages', () => {
+  const service = loadService();
+  const links = service.referenceLinks(['food_log', 'https://example.org', 'profile', 'health_data', 'today']);
+  assert.equal(Array.from(links, link => link.href).join(' '), '#food #profile #profile #today');
+  assert.equal(links[0].label, 'Food log');
+  assert.equal(service.referenceLinks(undefined).length, 0);
+});
+
 test('photo uploads multipart data and returns the saved estimate after progress', async () => {
   const file = new File(['photo'], 'meal.jpg', { type: 'image/jpeg' });
   const service = loadService(async (url, options) => {

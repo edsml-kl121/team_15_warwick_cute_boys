@@ -248,7 +248,7 @@ class AgentsCoach:
 
         @function_tool
         async def get_sleep_last_night() -> dict:
-            """Read the demo sleep data and display the sleep insight."""
+            """Read the current guest's latest recorded sleep and display the available measurements."""
             card = service.sleep_card()
             cards.put_nowait(card)
             return card
@@ -274,12 +274,22 @@ class AgentsCoach:
         async def get_health_history() -> dict:
             """Read a summary of the visitor's imported history: targets, 30-day averages, recent meals,
             favourite restaurants and dishes, wearables, workouts and weight trend. Use it to personalise advice."""
-            return recommendation_context(service.state.get("persona"))
+            return recommendation_context(service.health_persona())
 
         @function_tool
         async def get_food_log() -> dict:
             """Read today's logged meals and totals."""
-            return service.food_log(service.state["date"])
+            return service.food_log(service.data_date())
+
+        @function_tool
+        async def lookup_food_nutrition(dish: str) -> dict:
+            """Look up a named dish's nutrition in the MongoDB food catalog. Use for calories or macros.
+            This reads catalog values and shows a dish card. It does not search restaurants."""
+            meal = await service.lookup_food_nutrition(dish)
+            if meal is None:
+                return {"found": False}
+            cards.put_nowait(meal)
+            return {"found": True, "meal": meal}
 
         @function_tool
         async def show_products(query: str) -> dict:
@@ -308,6 +318,7 @@ class AgentsCoach:
         @function_tool
         async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
             """Find Shopee Food places near the visitor that serve this dish and display them.
+            Use only when the visitor asks for places, ordering, or delivery.
             The app handles the search location and delivery checkout. Use shop_id for bookings.
 
             Args:
@@ -333,7 +344,7 @@ class AgentsCoach:
             booking = await service.book(session_id, shop_id, time, party_size, request)
             return {key: booking[key] for key in ("id", "restaurant_name", "time", "party_size", "status")}
 
-        return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history,
+        return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history, lookup_food_nutrition,
                 show_products, recommend_meal, find_similar_dishes, book_table_by_phone]
 
     def input(self, service, session_id, message, history):

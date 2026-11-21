@@ -38,17 +38,19 @@ AWS_ACCESS_KEY_ID=${{bucket.ACCESS_KEY_ID}}
 AWS_SECRET_ACCESS_KEY=${{bucket.SECRET_ACCESS_KEY}}
 ```
 
-Startup creates the collections and indexes idempotently and seeds the mock wellness day. To run the initializer separately from a machine with private database access, run `uv run python -m storage` from `BE/` with `MONGO_URL` configured.
+Startup creates the collections and indexes idempotently. To run the initializer separately from a machine with private database access, run `uv run python -m storage` from `BE/` with `MONGO_URL` configured.
 
 | Collection | Contents |
 | --- | --- |
-| `guests` | Cookie-token hash, profile, preferences, goals, sharing choices, mock dataset reference and the optional imported `persona` health history |
-| `wellness_days` | Versioned sample sleep, recovery and activity by date |
+| `guests` | Cookie-token hash, profile, preferences, goals, sharing choices and imported `persona` health history |
+| `wellness_days` | Legacy shared sample dataset. Excluded from guest reads. |
+| `food_catalog` | Food catalog under `_id: "food_db"`, with a `foods` array and private image object URLs |
+| `guest_health_imports` | Explicitly staged sample imports keyed by case-insensitive display name, applied on guest creation |
 | `meals` | Guest-owned meal entries and optional food image keys |
 | `sessions`, `session_events` | Guest-owned conversations, workflow state, completed turns, cards and feed events |
 | `orders`, `bookings`, `reminders` | Guest-owned actions and their statuses |
 
-Keep one Backend replica. Local runs without `MONGO_URL` use scoped JSON files under `DATA_DIR`. The visitor cookie lasts 90 days and restores a profile on the same browser. Open `/?demo=ploy` to start the scripted demo and use the presenter dashboard from that browser. Its reset applies to that Ploy run.
+Keep one Backend replica. For local development against Railway MongoDB, start a private tunnel with `railway connect MongoDB --tunnel-only` and set `MONGO_URL` to its loopback connection string before running the backend. For Compose, supply a `MONGO_URL` reachable from the backend container. The backend requires MongoDB and scopes guest data to the guest cookie. The same display name can represent different guests.
 
 `PUT /persona` imports a visitor's own health history as one JSON document (`profile`, `food_history_log`, `wearable_daily`, `workouts`, `weights`, `body_composition_scans`). The backend validates it, stores it on the guest, applies the calorie and macro targets, name, area, tastes and connected sources to the profile, and merges that day's meals into `GET /food-log`. The coach's `get_health_history` tool returns a compact summary of it, never the raw log. `GET /persona` returns the stored document.
 
@@ -62,12 +64,12 @@ Generate a VAPID key pair once with `uv run python -m push`, then set `VAPID_PUB
 
 Set `PRESENTER_KEY` on the Backend. `POST /presenter/trigger` with `X-Presenter-Key` and `{guest_name, moment | reminder}` triggers the action for every guest with that display name, ignoring case. The response reports how many guests matched and how many triggers succeeded. The presenter dashboard (`/presenter.html`) uses it from any device.
 
-The same endpoint accepts `{guest_name, agent: "food"}` and `{guest_name, agent: "item"}`. Set the S3 variables above to the hackathon bucket containing `body_data/` and `personas/`. The food agent ranks catalog meals using available history, then looks for similar Shopee Food listings nearby. The item agent uses recent sleep or activity to search Shopee Mall. Both post to the guest’s chat and can send a web push. With `OPENAI_API_KEY`, `RECOMMENDATION_MODEL` (default `gpt-4.1-mini`) chooses from the ranked shortlist. Local runs without a key use the first ranked choice.
+The same endpoint accepts `{guest_name, agent: "food"}` and `{guest_name, agent: "item"}`. The food agent sends a catalog meal based on the guest’s history. When the guest replies **Recommend places nearby**, the chat searches Shopee Food near their selected location. The item agent uses recent sleep or activity to search Shopee Mall. Both agents post to the guest’s chat and can send a web push. With `OPENAI_API_KEY`, `RECOMMENDATION_MODEL` (default `gpt-4.1-mini`) chooses from the ranked shortlist. Local runs without a key use the first ranked choice.
 
-Both agents use `load_recommendation_context` to read fresh MongoDB data by guest ID, merge it with local meals, and load a matching bucket persona when needed. With no health history, the food agent uses the current profile and catalog, and the item agent labels its suggestion as general. Set `RECOMMENDATION_BUCKET` instead of `S3_BUCKET` when the process should read the catalog without storing meal photos.
+Both agents read the authenticated guest’s MongoDB profile, wearable history and meals. The food agent also reads the catalog from MongoDB. The bucket supplies images. Explicitly imported sample readings and meals are labeled and used when the corresponding personal history is empty. The item agent reports when no qualifying sleep or activity reading exists.
 
-On Railway, the agents use the app’s private `MONGO_URL` by default. For local testing against a private Railway database, open a Railway SSH tunnel with `railway connect MongoDB --tunnel-only` and set `RECOMMENDATION_MONGO_URL` to a tunneled connection string for a MongoDB user with the `read` role. Leave `MONGO_URL` unset to keep local app writes in `DATA_DIR`. Recommendation queries match the exact guest ID across databases. Same-name local and Railway guests keep their own histories.
+Other app clients can use `POST /recommendations/food`, `POST /recommendations/food/places`, and `GET /recommendations/health-history` with the guest cookie and backend API token. Request and response shapes are documented in [the frontend API guide](../FE/CHAT_API.md).
 
-With imported health history, the dinner tip picks a dish the guest already eats that closes today's protein gap within the calories left, explains why and searches Shopee Food for it. Without history it falls back to the grilled chicken salad. The `weekly_recap` moment summarises the last seven logged days (calories, protein, steps, Shopee Food spend, sodium and weight), states one insight and asks what to work on. Its replies, **Plan tomorrow's meals** and **Find lighter orders**, answer from the same history without an AI key.
+The `weekly_recap` moment summarises the last seven logged days (calories, protein, steps, Shopee Food spend, sodium and weight), states one insight and asks what to work on. Its replies, **Plan tomorrow's meals** and **Find lighter orders**, answer from the same history without an AI key.
 
 Calls simulate results by default. For live calls in the Ploy demo set `LIVE_CALLS=1`, the Twilio and OpenAI variables from the spec, and a comma-separated `TWILIO_VERIFIED_TEST_NUMBERS` list of team-owned numbers. The backend requires the listing number to match that list. An OpenAI key enables free-form chat through the Agents SDK. Chat uses `gpt-6.1-sol` on the ultrafast service tier with reasoning `low` by default. Override it with `CHAT_MODEL`, `CHAT_SERVICE_TIER` and `CHAT_REASONING_EFFORT`; `CHAT_SERVICE_TIER=default` uses the standard tier. Ultrafast costs more than the standard tier and has its own rate limits.

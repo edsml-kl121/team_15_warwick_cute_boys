@@ -61,6 +61,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .md pre { padding: 10px 12px; border-radius: 12px; background: #f3eee6; overflow-x: auto; white-space: pre; }
 .md pre code { padding: 0; background: none; }
 .md a { color: #3a6758; font-weight: 700; }
+.recommendation-references { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0 14px; font-size: 14px; }
+.recommendation-references a { color: #3a6758; font-weight: 700; text-decoration: underline; }
 .md-table { overflow-x: auto; border: 1px solid #ebe9e2; border-radius: 14px; background: #fff; white-space: normal; }
 .md-table table { border-collapse: collapse; width: 100%; font-size: 13px; line-height: 18px; }
 .md-table th, .md-table td { padding: 8px 10px; text-align: left; border-top: 1px solid #ebe9e2; overflow-wrap: normal; }

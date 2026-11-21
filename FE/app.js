@@ -379,6 +379,16 @@
         if (card) cardGroup.append(card);
       }
       if (cardGroup.childElementCount) group.append(cardGroup);
+      const references = service.referenceLinks(message.references);
+      if (references.length) {
+        const links = node('div', 'recommendation-references');
+        for (const reference of references) {
+          const link = node('a', '', reference.label);
+          link.href = reference.href;
+          links.append(link);
+        }
+        group.append(links);
+      }
       if (message.replies?.length) {
         const replies = node('div', 'quick-replies');
         for (const text of message.replies) {
@@ -662,7 +672,9 @@
     if (HEADER_STATUS[item.header_status]) thread.headerStatus = item.header_status;
     const cards = service.cards(item.card);
     if (item.text || cards.length || item.quick_replies?.length) {
-      thread.messages.push({ role: 'assistant', text: item.text, cards, replies: item.quick_replies });
+      thread.messages.push({
+        role: 'assistant', text: item.text, cards, replies: item.quick_replies, references: item.references,
+      });
     }
   }
 

@@ -23,7 +23,7 @@
     <div class="flow-branches">
       <section class="flow-branch">
         <h3>Food chooses a dish</h3>
-        <p><code>food_candidates</code> ranks meals from the bucket’s catalog using the guest’s goals, meal history, and preferences. <code>choose</code> selects a dish. Shopee Food then finds similar listings, which the backend filters by budget. <a href="../BE/recommendations.py">Food branch</a></p>
+        <p><code>food_candidates</code> ranks meals from MongoDB using the guest’s goals, meal history, and preferences. <code>choose</code> selects a dish. A later request for nearby places calls Shopee Food. <a href="../BE/recommendations.py">Food branch</a></p>
       </section>
       <section class="flow-branch">
         <h3>Item chooses a search term</h3>
@@ -31,7 +31,7 @@
       </section>
     </div>
 
-    <p>The optional model chooses from the supplied shortlist by returning an index. If no model is configured, <code>choose</code> returns the first candidate. After the Shopee lookup, <code>Zippy.emit</code> saves the recommendation to the session feed. The browser polls that feed and renders the cards. <a href="../BE/recommendations.py">Choice logic</a> · <a href="../BE/service.py">Publishing</a> · <a href="../FE/app.js">Feed polling</a></p>
+    <p>The optional model chooses from the supplied shortlist by returning an index. If no model is configured, <code>choose</code> returns the first candidate. After the branch returns, <code>Zippy.emit</code> saves the recommendation to the session feed. The browser polls that feed and renders the cards. <a href="../BE/recommendations.py">Choice logic</a> · <a href="../BE/service.py">Publishing</a> · <a href="../FE/app.js">Feed polling</a></p>
   </section>
 
   <section>
@@ -39,8 +39,8 @@
     <fieldset data-quiz>
       <legend>In the food flow, where does a restaurant’s listed price come from?</legend>
       <div class="choices">
-        <button type="button" aria-pressed="false" data-feedback="The bucket provides dish candidates and their nutrition. Restaurant prices are filled in after the Shopee lookup.">Bucket catalog records</button>
-        <button type="button" aria-pressed="false" data-feedback="Correct. food() reads price_thb from find_similar_dishes and uses it to filter by budget.">Shopee Food results</button>
+        <button type="button" aria-pressed="false" data-feedback="MongoDB provides dish candidates and their nutrition. Restaurant prices come from the separate Shopee lookup.">MongoDB catalog records</button>
+        <button type="button" aria-pressed="false" data-feedback="Correct. find_places() reads price_thb from find_similar_dishes after the guest requests places.">Shopee Food results</button>
         <button type="button" aria-pressed="false" data-feedback="The model chooses a candidate index. It sees the shortlist before the restaurant lookup.">Model choice response</button>
       </div>
       <p class="feedback" role="status"></p>
@@ -64,7 +64,7 @@
     <h2>Prove the handoff in the test</h2>
     <p>Find <code>test_presenter_agents_use_guest_data_and_publish_search_results</code>. Point to the assertion for each Shopee tool name, then find the item ID the test passes to Buy. Ask me to walk through the matching production functions if you lose the thread. <a href="../BE/tests/test_zippy.py">Primary reading · Offline presenter scenario</a></p>
   </section>
-  <footer><a href="../reference/recommendation-agent-architecture.html">Open the end-to-end architecture map</a>.</footer>
+  <footer><a href="0005-call-the-recommendation-api.html">Next lesson · Call the recommendation API</a> · <a href="../reference/recommendation-agent-architecture.html">Architecture map</a></footer>
 </main>
 </body>
 </html>

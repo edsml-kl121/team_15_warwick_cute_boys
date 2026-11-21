@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from twilio.request_validator import RequestValidator
 
-from demo import Clock
+from demo import Clock, DINNER, seed
 from integrations import AgentsCoach
 from main import Settings, create_app
 from recommendations import BucketRecommendationData
@@ -160,18 +160,33 @@ def demo(tmp_path, pinned=True, **options):
         settings.demo_now = "2026-11-21T07:02:00+07:00"
     settings.token = "test-token"
     settings.presenter_key = "local-presenter"
-    settings.directory = tmp_path
     settings.use_ai = False
     settings.mongo_url = None
-    settings.recommendation_mongo_url = None
     settings.secure_cookies = False
     fake = FakeShopee()
-    options.setdefault("database", mongomock.MongoClient().zippy)
+    database = options.setdefault("database", mongomock.MongoClient().zippy)
+    database.food_catalog.update_one({"_id": "food_db"}, {"$setOnInsert": {"foods": [{
+        "food_id": "grilled-chicken-salad", "menu": DINNER["dish"], "role": "main",
+        "nutrition": {"calories": DINNER["kcal"], "protein_g": DINNER["protein_g"]},
+    }]}}, upsert=True)
     phone = options.pop("phone", None) or FakePhone()
     app = create_app(settings=settings, shopee=fake, phone=phone, photos=FakePhotos(), **options)
     with TestClient(app, headers={"Authorization": "Bearer test-token", "X-Zippy-Demo": "1"}) as client:
         assert client.get("/today").status_code == 401
         assert client.post("/visitor").json() == {"ready": True}
+        owner = "demo-" + sha256(client.cookies["zippy_ploy"].encode()).hexdigest()
+        day = database.guests.find_one({"_id": owner})["date"]
+        fixture = seed(day)
+        sleep = fixture["day_data"][day]["sleep"]
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "profile": {}, "wearable_daily": [{
+                "date": day, "sleep_minutes": sleep["minutes"], "deep_minutes": sleep["deep_minutes"],
+                **fixture["day_data"][day]["activity"],
+            }],
+        }}})
+        for meal in fixture["food"]:
+            meal["id"] = meal["id"].replace("seed-", "fixture-")
+            database.meals.insert_one({"guest_id": owner, **meal})
         yield client, fake
 
 
@@ -446,6 +461,29 @@ def test_coach_food_recommendation_shows_the_dish_and_asks_before_any_restaurant
         assert meal["dish"] in offer["quick_replies"][0]
         assert shown.empty()
         assert not getattr(simulator, "dish_searches", [])
+
+
+def test_chat_reads_named_dish_calories_from_mongo_before_the_coach(tmp_path):
+    class Coach:
+        async def stream(self, *args, **kwargs):
+            yield {"type": "delta", "text": "The request reached the general coach."}
+
+    database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_one({"_id": "food_db", "foods": [{
+        "food_id": "spaghetti-bolognese", "menu": "Spaghetti Bolognese",
+        "nutrition": {"calories": 650, "protein_g": 28, "carbs_g": 78, "fat_g": 22},
+    }]})
+    with demo(tmp_path, database=database, coach=Coach()) as (client, simulator):
+        events = say(client, "i want spighetti bolongnese whats the calorie")
+        assert "650 kcal" in "".join(event.get("text", "") for event in events)
+        [meal] = cards(events)
+        assert meal["food_id"] == "spaghetti-bolognese"
+        events = say(client, "How much protein in spaghetti bolognese?")
+        assert "28 g protein" in "".join(event.get("text", "") for event in events)
+        events = say(client, "Calories in nonexistent food?")
+        assert not cards(events)
+        assert "couldn’t find" in "".join(event.get("text", "") for event in events)
+        assert not getattr(simulator, "dish_searches", [])
         assert visitor(client).session("ploy")["places"] == []
 
 
@@ -587,7 +625,7 @@ def test_photo_reset_and_access_checks(tmp_path):
         assert client.post("/actions/buy", json={"item_id": "p_eyemask"}).is_success
         assert client.post("/demo/reset").is_success
         assert simulator.status == "cancelled"
-        assert client.get("/food-log").json()["totals"]["protein_g"] == 50
+        assert client.get("/food-log").json()["totals"]["protein_g"] == 78
         assert client.get("/feed").json() == []
 
 
@@ -605,7 +643,7 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         guest_token = client.cookies["zippy_guest"]
         assert client.get("/profile", headers=guest_headers).json()["name"] == "Nok"
         assert client.get("/profile").json()["name"] == "Ploy"
-        assert client.get("/today", headers=guest_headers).json()["demo_data"] is True
+        assert client.get("/today", headers=guest_headers).json()["sleep"]["minutes"] is None
         assert client.post("/demo/reset", headers=guest_headers).status_code == 403
         chat = client.post("/chat", headers=guest_headers, json={"session_id": "guest-chat", "message": "How did I sleep?"})
         assert json.loads(chat.text.splitlines()[-1]) == {"type": "done"}
@@ -636,9 +674,9 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         history = client.get("/sessions/guest-chat", headers=guest_headers).json()
         assert history["last_feed_id"] == 1
         assert [event["type"] for event in history["timeline"]] == ["turn", "feed"]
-        assert cards(history["timeline"][0]["events"])[0]["deep_minutes"] == 58
+        assert not cards(history["timeline"][0]["events"])
         assert client.get("/food-log", headers=guest_headers).json()["meals"][0]["photo_url"] == photo_url
-        assert database.wellness_days.count_documents({}) == 1
+        assert database.wellness_days.count_documents({}) == 0
         assert set(database.list_collection_names()) == set(COLLECTIONS)
 
 
@@ -687,7 +725,7 @@ def test_persona_upload_personalises_profile_food_log_and_coach_context(tmp_path
             ("Thai Pork Spread", "shopee_food", "FitMeal BKK")]
         assert meals["totals"]["kcal"] == 1082
         assert client.get("/food-log?date=2026-11-22", headers=guest).json()["meals"][0]["source"] == "photo"
-        assert client.get("/persona").status_code == 404  # the Ploy demo visitor stays separate
+        assert client.get("/persona").json()["profile"] == {}  # the separate test demo has no guest profile data
 
     stored = database.guests.find_one({"persona.profile.persona_id": "P01"})
     assert stored is not None
@@ -712,7 +750,7 @@ def test_photo_stream_reports_progress_and_logs_only_success(tmp_path):
         assert done["meal"]["items"][0]["portion"] == "1 bowl"
         food_log = client.get("/food-log").json()
         assert food_log["totals"]["protein_g"] == 78
-        assert food_log["meals"][-1]["id"] == done["meal"]["id"]
+        assert any(meal["id"] == done["meal"]["id"] for meal in food_log["meals"])
         assert "350 kcal" in client.get("/feed").json()[-1]["text"]
 
 
@@ -777,8 +815,16 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
     data = BucketRecommendationData(Bucket(), "hackathon")
     guest = {"X-Zippy-Demo": "0"}
     presenter = {"X-Presenter-Key": "local-presenter"}
-    with demo(tmp_path, recommendation_data=data) as (client, simulator):
+    database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_one({"_id": "food_db", **objects["body_data/food_db.json"]})
+    with demo(tmp_path, recommendation_data=data, database=database) as (client, simulator):
         assert client.post("/visitor", headers=guest, json={"name": "Krit"}).is_success
+        owner = "guest-" + sha256(client.cookies["zippy_guest"].encode()).hexdigest()
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "profile": profile,
+            "wearable_daily": [objects["body_data/body_health_wearable.json"]["daily"][0]],
+            "food_history_log": [objects["body_data/food_history_log.json"]["entries"][0]],
+        }}})
         body = {"guest_name": "krit", "agent": "food"}
         assert client.post("/presenter/trigger", json=body).status_code == 403
         assert client.post("/presenter/trigger", json={**body, "moment": "dinner_tip"},
@@ -787,10 +833,14 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
         assert result.is_success, result.text
         assert result.json()["session_id"] == "presenter"
         feed = "/feed?session_id=presenter"
-        meal, places = cards(client.get(feed, headers=guest).json())
+        entries = client.get(feed, headers=guest).json()
+        [meal] = cards(entries)
         assert meal["dish"] == "Chicken salad"
         assert meal["food_id"] == "chicken"
-        assert "35 g left toward today’s protein goal" in meal["why"]
+        assert "55 g of protein today, with 35 g left toward your goal" in meal["why"]
+        assert entries[-1]["quick_replies"] == ["Recommend places nearby", "Skip"]
+        assert entries[-1]["references"] == ["food_log", "profile"]
+        assert not getattr(simulator, "dish_searches", [])
         image = client.get("/food-log/catalog-image?food_id=chicken", follow_redirects=False)
         assert image.status_code == 307 and image.headers["location"].endswith("?signature=test")
         assert client.get("/food-log/catalog-image", params={"dish": "Chicken salad"},
@@ -798,18 +848,33 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
         assert client.get("/food-log/catalog-image?food_id=peanut").status_code == 404
         assert client.get("/food-log/catalog-image?food_id=chicken",
                           headers={"Authorization": "Bearer wrong"}).status_code == 401
+        response = client.post("/chat", headers=guest, json={"session_id": "presenter", "message": "Skip"})
+        assert response.is_success and not getattr(simulator, "dish_searches", [])
+        assert client.post("/recommendations/food/places", headers=guest,
+                           json={"session_id": "presenter"}).status_code == 404
+
+        response = client.post("/recommendations/food", headers=guest, json={"session_id": "presenter"})
+        assert response.json()["items"][0]["card"]["dish"] == "Chicken salad"
+        response = client.post("/chat", headers=guest, json={
+            "session_id": "presenter", "message": "Recommend places nearby", "location": {"lat": 13.73, "lng": 100.53},
+        })
+        [places] = cards([json.loads(line) for line in response.text.splitlines()])
         assert [p["price_thb"] for p in places["places"]] == [265, 245, 275]
         assert simulator.calls[-1] == ("find_similar_dishes", {
             "dish": "Chicken salad", "calories": 400, "protein_g": 35,
             "limit": 35, "lat": 13.73, "lng": 100.53,
         })
+        assert places["location_source"] == "current"
+        assert client.post("/recommendations/food", headers=guest, json={"session_id": "api-meal"}).is_success
+        places = client.post("/recommendations/food/places", headers=guest, json={"session_id": "api-meal"})
+        assert places.json()["card"]["location_source"] == "silom"
         assert not client.get(feed).json()
 
         result = client.post("/presenter/trigger", json={**body, "agent": "item"}, headers=presenter)
         assert result.is_success, result.text
         entries = client.get(feed, headers=guest).json()
-        assert any("5.5 hours" in entry.get("text", "") and "below your 7-hour goal" in entry["text"]
-                   for entry in entries)
+        assert "5.5 hours" in entries[-2]["text"] and "below your 7-hour goal" in entries[-2]["text"]
+        assert entries[-2]["references"] == ["health_data"]
         assert cards(entries)[-1]["products"][0]["item_id"] == "p_eyemask"
         assert simulator.calls[-1] == ("search_products", {"query": "eye mask"})
         assert client.post("/actions/buy", headers=guest,
@@ -845,37 +910,79 @@ def test_presenter_reminder_triggers_for_all_guests_named_mew(tmp_path):
 
 
 def test_presenter_agents_read_fresh_mongo_history_and_handle_new_guests(tmp_path):
-    class Catalog:
-        async def persona(self, guest_name, *, food):
-            return None
-
-        async def read(self, key):
-            assert key == "body_data/food_db.json"
-            return {"foods": [{"food_id": "chicken", "menu": "Chicken salad", "role": "salad",
-                               "nutrition": {"calories": 400, "protein_g": 35}}]}
-
     database = mongomock.MongoClient().zippy
+    database.food_catalog.insert_one({"_id": "food_db", "foods": [
+        {"food_id": "chicken", "menu": "Chicken salad", "role": "salad",
+         "nutrition": {"calories": 400, "protein_g": 35}},
+    ]})
     guest = {"X-Zippy-Demo": "0"}
     presenter = {"X-Presenter-Key": "local-presenter"}
-    with demo(tmp_path, database=database, recommendation_data=Catalog()) as (client, _):
+    with demo(tmp_path, database=database) as (client, _):
         assert client.post("/visitor", headers=guest, json={"name": "Fresh"}).is_success
+        token = client.cookies["zippy_guest"]
+        owner = "guest-" + sha256(token.encode()).hexdigest()
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "profile": {"persona_id": "P10", "display_name": "Fresh"},
+            "wearable_daily": [{"date": "2026-11-20", "sleep_hours": 5.5, "import_id": "initial-wellness-2026-11-21"}],
+            "food_history_log": [{"date": "2026-11-21", "meal_name": "Sample meal",
+                                  "log_id": "initial-meal-2026-11-21-0", "meal_totals": {"calories": 420}}],
+        }}})
+        assert client.get("/today", headers=guest).json()["sleep"]["source"] == "Imported sample"
+        assert client.get("/food-log", headers=guest).json()["meals"][0]["source"] == "imported_sample"
         for agent in ("food", "item"):
             result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": agent}, headers=presenter)
             assert result.is_success, result.text
         feed = "/feed?session_id=presenter"
         entries = client.get(feed, headers=guest).json()
         assert cards(entries)[0]["dish"] == "Chicken salad"
-        assert any("general sleep accessory" in item.get("text", "") for item in entries)
+        assert "imported sample meal history" in cards(entries)[0]["why"]
+        assert "An imported sample records 5.5 hours of sleep" in entries[-2]["text"]
 
-        token = client.cookies["zippy_guest"]
-        owner = "guest-" + sha256(token.encode()).hexdigest()
         database.guests.update_one({"_id": owner}, {"$set": {"persona": {
             "profile": {"persona_id": "P10", "display_name": "Fresh"},
-            "wearable_daily": [{"date": "2026-11-20", "sleep_hours": 5.5}],
+            "wearable_daily": [{"date": "2026-11-20", "sleep_hours": 5.5},
+                               {"date": "2026-11-20", "sleep_hours": 1, "import_id": "initial-wellness-2026-11-21"}],
+            "food_history_log": [{"date": "2026-11-21", "meal_name": "Logged meal",
+                                  "meal_totals": {"calories": 1200, "protein_g": 50}}],
         }}})
+        result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": "food"}, headers=presenter)
+        assert result.is_success, result.text
+        assert "Your meal history shows 50 g" in cards(client.get(feed, headers=guest).json())[-1]["why"]
         result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": "item"}, headers=presenter)
         assert result.is_success, result.text
         assert "5.5 hours" in client.get(feed, headers=guest).json()[-2]["text"]
+        assert client.get("/today", headers=guest).json()["sleep"]["minutes"] == 330
+        assert client.get("/food-log", headers=guest).json()["totals"]["protein_g"] == 50
+        path = "/recommendations/health-history?start=2026-11-20&end=2026-11-20"
+        history = client.get(path, headers=guest)
+        assert history.json()["wearable_daily"] == [{"date": "2026-11-20", "sleep_hours": 5.5}]
+        assert history.headers["cache-control"] == "no-store"
+        assert client.get("/recommendations/health-history?start=2026-11-21&end=2026-11-20",
+                          headers=guest).status_code == 422
+        client.cookies.delete("zippy_guest")
+        assert client.get(path, headers=guest).status_code == 401
+        assert client.post("/visitor", headers=guest, json={"name": "Fresh"}).is_success
+        assert client.get(path, headers=guest).json()["wearable_daily"] == []
+
+
+def test_pending_tam_import_attaches_to_each_case_insensitive_guest(tmp_path):
+    database = mongomock.MongoClient().zippy
+    database.guest_health_imports.insert_one({
+        "_id": "tam",
+        "wearable_daily": [{"date": "2026-11-01", "sleep_hours": 5.5, "import_id": "initial-wellness-2026-11-01"}],
+        "food_history_log": [{"date": "2026-11-01", "timestamp": "2026-11-01T07:40:00+07:00",
+                              "meal_name": "Sample meal", "log_id": "initial-meal-2026-11-01-0"}],
+    })
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        for name in ("Tam", "tam", "Other"):
+            assert client.post("/visitor", headers=guest, json={"name": name}).is_success
+            result = client.get("/recommendations/health-history", headers=guest).json()
+            assert len(result["wearable_daily"]) == (0 if name == "Other" else 1)
+            if name != "Other":
+                assert result["wearable_daily"][0]["source"] == "imported_sample"
+                assert client.get("/food-log", headers=guest).json()["meals"][0]["time"] == "07:40"
+            assert client.delete("/visitor", headers=guest).is_success
 
 
 def test_push_subscribe_and_presenter_trigger_by_guest_name(tmp_path):

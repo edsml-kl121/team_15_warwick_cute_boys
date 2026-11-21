@@ -4,14 +4,14 @@ import math
 import re
 from collections import Counter
 from datetime import date, timedelta
+from difflib import SequenceMatcher
 from statistics import mean
-from time import monotonic
 from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel
 
-from persona import apply_to_profile, persona_meals
-from storage import read_guest_recommendation_data
+from persona import persona_meals
+from storage import read_food_catalog, read_guest_recommendation_data
 
 
 class RecommendationUnavailable(Exception):
@@ -19,12 +19,11 @@ class RecommendationUnavailable(Exception):
 
 
 class BucketRecommendationData:
-    """Read the hackathon dataset and cache its JSON objects for five minutes."""
+    """Sign private images for foods stored in MongoDB."""
 
     def __init__(self, client, bucket):
         self.client = client
         self.bucket = bucket
-        self.cache = {}
 
     @classmethod
     def connect(cls, bucket, region, endpoint, addressing_style):
@@ -37,28 +36,7 @@ class BucketRecommendationData:
         ))
         return cls(client, bucket)
 
-    async def read(self, key):
-        expires, data = self.cache.get(key, (0, None))
-        if expires > monotonic():
-            return data
-
-        def read_object():
-            body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
-            with body:
-                content = body.read(8 * 1024 * 1024 + 1)
-            if len(content) > 8 * 1024 * 1024:
-                raise ValueError("Recommendation data exceeds the supported object size.")
-            return json.loads(content)
-
-        try:
-            data = await asyncio.to_thread(read_object)
-        except Exception:
-            raise RecommendationUnavailable("Couldn’t read the recommendation data from the bucket.") from None
-        self.cache[key] = (monotonic() + 300, data)
-        return data
-
-    async def catalog_image_url(self, food_id, dish):
-        foods = (await self.read("body_data/food_db.json"))["foods"]
+    async def catalog_image_url(self, foods, food_id, dish):
         matches = [food for food in foods if (
             str(food.get("food_id")) == food_id if food_id else food.get("menu", "").casefold() == dish.casefold()
         )]
@@ -83,44 +61,6 @@ class BucketRecommendationData:
             Params={"Bucket": self.bucket, "Key": path}, ExpiresIn=900,
         )
 
-    async def persona(self, guest_name, *, food):
-        profiles = (await self.read("body_data/user_profiles.json"))["personas"]
-        matches = [p for p in profiles if p["display_name"].strip().casefold() == guest_name.strip().casefold()]
-        if len(matches) != 1:
-            return None
-        profile = matches[0]
-        persona_id = profile["persona_id"]
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", persona_id):
-            raise RecommendationUnavailable("The bucket contains an invalid persona ID.")
-
-        def find_file():
-            result = self.client.list_objects_v2(Bucket=self.bucket, Prefix=f"personas/{persona_id}_", MaxKeys=10)
-            keys = [item["Key"] for item in result.get("Contents", []) if item["Key"].endswith(".json")]
-            if len(keys) != 1 or result.get("IsTruncated"):
-                raise ValueError("Expected one persona file.")
-            return keys[0]
-
-        try:
-            key = await asyncio.to_thread(find_file)
-        except Exception:
-            raise RecommendationUnavailable("Couldn’t find the guest’s persona file in the bucket.") from None
-        keys = [key, "body_data/body_health_wearable.json"]
-        if food:
-            keys.append("body_data/food_history_log.json")
-        persona, health, *history = await asyncio.gather(*(self.read(path) for path in keys))
-        if persona["profile"]["persona_id"] != persona_id:
-            raise RecommendationUnavailable("The bucket persona doesn’t match the selected guest.")
-        body = next((entry for entry in health.get("body", []) if entry.get("persona_id") == persona_id), {})
-        return {
-            **persona,
-            **{name: body[name] for name in ("weights", "body_composition_scans") if name in body},
-            "wearable_daily": [entry for entry in health["daily"] if entry.get("persona_id") == persona_id]
-            or persona.get("wearable_daily", []),
-            "food_history_log": (
-                [entry for entry in history[0]["entries"] if entry.get("persona_id") == persona_id]
-                or persona.get("food_history_log", [])
-            ) if history else [],
-        }
 
 
 class Choice(BaseModel):
@@ -135,47 +75,72 @@ def words(value):
     return set(re.findall(r"[^\W_]+", str(value).casefold()))
 
 
+def match_catalog_food(foods, query):
+    """Find a named dish in a question, tolerating modest spelling errors."""
+    tokens = re.findall(r"[^\W_]+", query.casefold())
+    message = " ".join(tokens)
+    ranked = []
+    for food in foods:
+        name = re.findall(r"[^\W_]+", food.get("menu", "").casefold())
+        size = len(name)
+        if not size or size > len(tokens):
+            continue
+        label = " ".join(name)
+        if f" {label} " in f" {message} ":
+            confidence = 1.0
+        elif size >= 2:
+            confidence = max(SequenceMatcher(None, label, " ".join(tokens[i:i + size])).ratio()
+                             for i in range(len(tokens) - size + 1))
+            if confidence < 0.83:
+                continue
+        else:
+            continue
+        ranked.append((confidence + 0.02 * min(size, 5), food))
+    ranked.sort(key=lambda candidate: candidate[0], reverse=True)
+    if not ranked or len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.01:
+        return None
+    return ranked[0][1]
+
+
 def wearable_summary(persona, day):
     start = str(date.fromisoformat(day) - timedelta(days=13))
-    readings = sorted((row for row in persona.get("wearable_daily", []) if start <= row.get("date", "") <= day),
+    readings = sorted((row for row in persona.get("wearable_daily", []) if start <= str(row.get("date", "")) <= day),
                       key=lambda row: row["date"])[-7:]
     result = {}
-    for field in ("sleep_hours", "active_minutes", "steps", "recovery_pct"):
+    if any(row.get("source") == "imported_sample" for row in readings):
+        result["imported_sample"] = True
+    sleep = []
+    for row in readings:
+        minutes = number(row.get("sleep_minutes"))
+        hours = minutes / 60 if minutes is not None else number(row.get("sleep_hours"))
+        if hours is not None and 0 < hours <= 24:
+            sleep.append((row["date"], hours))
+    if sleep:
+        result["sleep_hours"] = round(mean(hours for _, hours in sleep), 1)
+        result["sleep_nights"] = len(sleep)
+        yesterday = str(date.fromisoformat(day) - timedelta(days=1))
+        for recorded, hours in sleep:
+            if recorded == yesterday:
+                result["yesterday_sleep_hours"] = hours
+    for field in ("active_minutes", "steps", "recovery_pct"):
         valid = [row[field] for row in readings if number(row.get(field)) is not None
-                 and (0 < row[field] <= 24 if field == "sleep_hours" else row[field] >= 0)]
+                 and row[field] >= 0]
         if valid:
             result[field] = round(mean(valid), 1)
-            if field == "sleep_hours":
-                result["sleep_nights"] = len(valid)
     return result
 
 
-async def load_recommendation_context(visitor, bucket, *, food, database=None):
-    """Combine guest-scoped Mongo history and bucket data for either agent."""
-    state = visitor.state
-    day = state["date"]
-    profile, persona = state["profile"], state.get("persona")
-    logged = {meal["id"]: meal for meal in state["food"]
-              if meal["date"] == day and not meal["id"].startswith("seed-")}
-    owner = getattr(visitor.store, "owner", None)
-    if database is None:
-        database = getattr(visitor.store, "database", None)
-    if database is not None and owner:
-        try:
-            stored = await asyncio.to_thread(read_guest_recommendation_data, database, owner, day)
-        except Exception:
-            raise RecommendationUnavailable("Couldn’t read the guest’s recommendation data from MongoDB.") from None
-        if stored:
-            profile = stored.get("profile") or profile
-            persona = stored.get("persona") or persona
-            logged.update((meal["id"], meal) for meal in stored["meals"] if not meal["id"].startswith("seed-"))
-
-    if not persona and bucket is not None:
-        persona = await bucket.persona(profile["name"], food=food)
-        if persona:
-            profile = apply_to_profile(profile, persona)
-    persona = persona or {"profile": {}}
-    return profile, persona, wearable_summary(persona, day), list(logged.values()), day
+async def load_recommendation_context(visitor, database):
+    """Read the current guest's profile, meals, and wearable history from MongoDB."""
+    day = visitor.data_date()
+    try:
+        stored = await asyncio.to_thread(read_guest_recommendation_data, database, visitor.store.owner, day)
+    except Exception:
+        raise RecommendationUnavailable("Couldn’t read the guest’s recommendation data from MongoDB.") from None
+    if stored is None:
+        raise RecommendationUnavailable("No MongoDB guest record is available for this session.")
+    persona = stored.get("persona") or {"profile": {}}
+    return stored["profile"], persona, wearable_summary(persona, day), stored["meals"], day
 
 
 def food_candidates(catalog, persona, profile, logged, day):
@@ -227,28 +192,33 @@ def food_candidates(catalog, persona, profile, logged, day):
     return [food for _, food in sorted(ranked, key=lambda pair: pair[0])[:12]]
 
 
-def meal_reason(meal, logged, wearable, goals):
+
+def meal_reason(meal, logged, goals):
     logged_protein = sum(item["protein_g"] for item in logged)
+    if any(item.get("source") == "imported_sample" for item in logged):
+        return (f"The imported sample meal history totals {logged_protein:g} g of protein. "
+                f"This meal would add {meal['protein_g']} g toward your {goals['protein_g']} g goal.",
+                ["food_log", "profile"])
     remaining_kcal = goals["kcal"] - sum(item["kcal"] for item in logged)
     if logged and logged_protein < goals["protein_g"]:
         remaining = goals["protein_g"] - logged_protein
-        reason = (f"Your food log shows {logged_protein:g} g of protein today. You have {remaining:g} g left toward "
-                  f"today’s protein goal, and this meal would add about {meal['protein_g']} g.")
+        reason = (f"Your meal history shows {logged_protein:g} g of protein today, with {remaining:g} g left toward "
+                  f"your goal. This meal adds {meal['protein_g']} g.")
+    elif logged and meal["kcal"] <= remaining_kcal:
+        reason = f"Your meal history leaves {remaining_kcal:g} kcal for today, and this serving fits."
+    elif logged:
+        reason = "I looked for a meal you hadn’t logged today. You’ve already reached your protein goal."
     else:
-        share = round(100 * meal["protein_g"] / goals["protein_g"])
-        reason = f"This serving covers about {share}% of the {goals['protein_g']} g daily protein goal in your profile."
-    if logged and meal["kcal"] <= remaining_kcal:
-        reason += f" At {meal['kcal']} kcal, it fits within the {remaining_kcal:g} kcal left in your food log."
-    elif not logged:
-        reason += f" It uses about {meal['kcal']} of your {goals['kcal']:,} daily kcal."
+        reason = f"I picked this to help you reach your {goals['protein_g']} g daily protein goal."
+        if meal["kcal"] <= goals["kcal"]:
+            reason += f" One serving fits within your {goals['kcal']:,} kcal target."
+    references = ["food_log", "profile"] if logged or meal["logged_before"] else ["profile"]
     if meal["logged_before"]:
         count = meal["logged_before"]
         reason += f" You’ve logged this dish {count} {'time' if count == 1 else 'times'} before."
     elif meal["cuisine_match"]:
-        reason += f" It also matches your preference for {meal['cuisine']} food."
-    elif wearable.get("active_minutes", 0) > 0:
-        reason += f" Your wearable recorded about {wearable['active_minutes']:g} active minutes a day recently."
-    return reason
+        reason += f" It matches your preference for {meal['cuisine']} food."
+    return reason, references
 
 
 class RecommendationAgents:
@@ -278,9 +248,7 @@ class RecommendationAgents:
         raise RecommendationUnavailable("The model returned an invalid recommendation. Try again.")
 
     async def food(self, zippy, persona, profile, wearable, logged, day):
-        if self.data is None:
-            raise RecommendationUnavailable("Configure the recommendation bucket to use the food catalog.")
-        catalog = (await self.data.read("body_data/food_db.json"))["foods"]
+        catalog = await self.food_catalog()
         logged = persona_meals(persona, day) + logged
         candidates = food_candidates(catalog, persona, profile, logged, day)
         if not candidates:
@@ -293,66 +261,53 @@ class RecommendationAgents:
             "preferences": profile["preferences"]["food"], "body_goal": source.get("body_goal"),
             "recent_activity": {key: wearable[key] for key in ("steps", "active_minutes") if key in wearable},
         }, candidates)
-        why = meal_reason(chosen, logged, wearable, profile["goals"])
-        area = source.get("home_area") or {}
-        lat, lng = number(area.get("lat")), number(area.get("lng"))
-        location = {"lat": lat, "lng": lng} if lat is not None and lng is not None else {}
-        try:
-            hits = await zippy.shopee.call("find_similar_dishes", dish=chosen["dish"], calories=chosen["kcal"],
-                                           protein_g=chosen["protein_g"], limit=35, **location)
-        except Exception:
-            raise RecommendationUnavailable("Shopee Food listings are unavailable. Try again.") from None
-        places = {}
-        for hit in hits:
-            restaurant = hit.get("restaurant") or {}
-            nutrition = hit.get("nutrition") or {}
-            price = number(hit.get("price_thb"))
-            if not restaurant.get("shop_id") or price is None:
-                continue
-            places.setdefault(restaurant["shop_id"], {
-                "shop_id": restaurant["shop_id"], "name": restaurant["name"], "dish": hit["name"],
-                "protein_g": nutrition.get("protein_g"), "price_thb": price,
-                "distance_km": restaurant.get("distance_km"),
-            })
-            if len(places) == 3:
-                break
+        why, references = meal_reason(chosen, logged, profile["goals"])
         meal = {key: chosen[key] for key in ("food_id", "dish", "kcal", "protein_g")}
-        items = [{"card": {"kind": "meal", **meal, "why": why}}]
-        if places:
-            text = "These Shopee Food listings serve this dish or a similar option."
-            if source.get("allergies"):
-                text += " These listings don’t include verified allergen information."
-            items.append({"text": text, "card": {"kind": "places", "places": list(places.values())}})
-        else:
-            items.append({"text": "I didn’t find a similar Shopee Food listing nearby."})
-        return items, []
+        items = [{
+            "card": {"kind": "meal", **meal, "why": why},
+            "references": references,
+            "quick_replies": ["Recommend places nearby", "Skip"],
+        }]
+        restaurant_query = {
+            "dish": meal["dish"], "calories": meal["kcal"], "protein_g": meal["protein_g"],
+            "allergies": bool(source.get("allergies")),
+        }
+        return items, [], restaurant_query
 
     async def item(self, zippy, profile, wearable):
-        sleep_goal = profile["goals"]["sleep_minutes"] / 60
+        sleep_goal = profile["goals"]["sleep_minutes"]
+        yesterday_sleep = wearable.get("yesterday_sleep_hours")
+        sleep_hours = yesterday_sleep if yesterday_sleep is not None else wearable.get("sleep_hours")
+        sample = wearable.get("imported_sample")
         choices = []
-        if "sleep_hours" in wearable and wearable["sleep_hours"] < sleep_goal:
+        if sleep_hours is not None and sleep_hours * 60 < sleep_goal:
             nights = wearable["sleep_nights"]
-            shortfall = round((sleep_goal - wearable["sleep_hours"]) * 60)
-            choices.append({"query": "eye mask", "reason": (
-                f"You averaged about {wearable['sleep_hours']:g} hours of sleep across "
-                f"{nights} recorded {'night' if nights == 1 else 'nights'}, below your {sleep_goal:g}-hour goal "
-                f"by about {max(1, shortfall)} minutes on average. "
-                "An eye mask is worth considering if room light makes it harder to sleep."
+            shortfall = round(sleep_goal - sleep_hours * 60)
+            recorded = f"Your wearable recorded {sleep_hours:.2g} hours of sleep yesterday." if yesterday_sleep is not None else (
+                f"Your wearable logged an average of {sleep_hours:g} hours of sleep across "
+                f"{nights} recorded {'night' if nights == 1 else 'nights'}."
+            )
+            if sample:
+                recorded = f"An imported sample records {sleep_hours:.2g} hours of sleep."
+            choices.append({"query": "eye mask", "references": ["health_data"], "reason": (
+                f"{recorded} That’s about {max(1, shortfall)} minutes below your {sleep_goal / 60:g}-hour goal. "
+                "An eye mask can help block room light."
             )})
-        elif zippy.store.demo and not wearable:
-            sleep = zippy.sleep_card()["minutes"]
-            if sleep < profile["goals"]["sleep_minutes"]:
-                choices.append({"query": "eye mask", "reason": "You slept less than your goal last night. "
-                                "An eye mask can block room light if it’s disturbing your sleep."})
         if wearable.get("active_minutes", 0) >= profile["goals"]["active_minutes"]:
-            choices.append({"query": "foam roller", "reason": (
-                f"Your wearable recorded about {wearable['active_minutes']:g} active minutes a day recently. "
+            source = "The imported sample shows" if sample else "Your wearable recorded"
+            choices.append({"query": "foam roller", "references": ["health_data"], "reason": (
+                f"{source} about {wearable['active_minutes']:g} active minutes a day. "
                 "A foam roller is an option for a post-workout wind-down."
             )})
-        if not choices:
-            choices.append({"query": "eye mask", "reason": (
-                "A general sleep accessory to consider. An eye mask can help block room light if it bothers you."
+        if not choices and sleep_hours is not None:
+            period = "yesterday" if yesterday_sleep is not None and not sample else "on average"
+            source = "The imported sample shows" if sample else "Your wearable logged"
+            choices.append({"query": "eye mask", "references": ["health_data"], "reason": (
+                f"{source} {sleep_hours:.2g} hours of sleep {period}, meeting your "
+                f"{sleep_goal / 60:g}-hour goal. An eye mask is optional if room light bothers you."
             )})
+        if not choices:
+            raise ValueError("No qualifying sleep or activity readings were found in your history.")
         chosen = await self.choose("item", {"signals": wearable}, choices)
         try:
             hits = await zippy.shopee.call("search_products", query=chosen["query"])
@@ -370,12 +325,40 @@ class RecommendationAgents:
         best = products[0]
         comparison = (f" {best['name']} is the highest-rated match I found "
                       f"({best['rating']:g}/5, ฿{best['price_thb']:g}).") if len(products) > 1 else ""
-        return [{"text": chosen["reason"] + comparison}, {"card": card}], products
+        return [{"text": chosen["reason"] + comparison, "references": chosen["references"]}, {"card": card}], products, None
 
     async def run(self, kind, zippy):
-        profile, persona, wearable, logged, day = await load_recommendation_context(
-            zippy, self.data, food=kind == "food", database=self.database,
-        )
+        profile, persona, wearable, logged, day = await load_recommendation_context(zippy, self.database)
         if kind == "food":
             return await self.food(zippy, persona, profile, wearable, logged, day)
         return await self.item(zippy, profile, wearable)
+
+    async def food_catalog(self):
+        try:
+            foods = await asyncio.to_thread(read_food_catalog, self.database)
+        except Exception:
+            raise RecommendationUnavailable("Couldn’t read the food catalog from MongoDB.") from None
+        if not foods:
+            raise RecommendationUnavailable("No food catalog is configured in MongoDB.")
+        return foods
+
+    async def catalog_image_url(self, food_id, dish):
+        if not self.data or not (food_id or dish):
+            return None
+        return await self.data.catalog_image_url(await self.food_catalog(), food_id, dish)
+
+    async def health_history(self, zippy, start, end):
+        _, persona, _, _, _ = await load_recommendation_context(zippy, self.database)
+        history = {}
+        for field in ("wearable_daily", "workouts", "weights", "body_composition_scans"):
+            rows = []
+            for row in persona.get(field, []):
+                raw_date = row.get("date") or row.get("timestamp") or row.get("start_time")
+                try:
+                    recorded = date.fromisoformat(str(raw_date)[:10])
+                except ValueError:
+                    continue
+                if start <= recorded <= end:
+                    rows.append(row)
+            history[field] = rows
+        return history

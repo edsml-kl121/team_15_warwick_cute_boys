@@ -22,7 +22,7 @@ from persona import Persona, apply_to_profile
 from push import WebPush, add_subscription
 from recommendations import BucketRecommendationData, RecommendationAgents, RecommendationUnavailable
 from service import MOMENTS, Zippy
-from storage import DemoHealth, JsonStore, VisitorStores, initialize_mongo
+from storage import VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
 
 load_dotenv()
@@ -36,13 +36,11 @@ class Settings:
         self.token = os.getenv("API_TOKEN", "" if os.getenv("RAILWAY_ENVIRONMENT") else "local-zippy")
         self.origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
         self.shopee_url = os.getenv("SHOPEE_MCP_URL", "https://shopee-sim-production.up.railway.app/mcp")
-        self.directory = os.getenv("DATA_DIR", "./data")
         self.demo_now = os.getenv("DEMO_NOW") or None  # unset: real Bangkok time; set to pin the clock
         self.use_ai = bool(os.getenv("OPENAI_API_KEY"))
         self.live_calls = os.getenv("LIVE_CALLS") == "1"
         self.mongo_url = os.getenv("MONGO_URL")
         self.mongo_database = os.getenv("MONGO_DATABASE") or "zippy"
-        self.recommendation_mongo_url = os.getenv("RECOMMENDATION_MONGO_URL")
         self.secure_cookies = bool(os.getenv("RAILWAY_ENVIRONMENT"))
         self.vapid_public_key = os.getenv("VAPID_PUBLIC_KEY", "")
         self.vapid_private_key = os.getenv("VAPID_PRIVATE_KEY", "")
@@ -58,6 +56,10 @@ class SessionBody(BaseModel):
 class SearchLocation(BaseModel):
     lat: float = Field(ge=-90, le=90, allow_inf_nan=False)
     lng: float = Field(ge=-180, le=180, allow_inf_nan=False)
+
+
+class RecommendationPlacesBody(SessionBody):
+    location: SearchLocation | None = None
 
 
 class ChatBody(SessionBody):
@@ -169,6 +171,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     async def lifespan(app):
         if not settings.token:
             raise RuntimeError("Set API_TOKEN before starting the backend.")
+        if database is None and not settings.mongo_url:
+            raise RuntimeError("Set MONGO_URL to the Railway MongoDB connection before starting the backend.")
         prompts = Prompts(prompts_path)
         local_clock = clock or Clock(settings.demo_now)
         adapter = shopee or Shopee(settings.shopee_url)
@@ -218,30 +222,21 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
             mongo_client = MongoClient(settings.mongo_url, serverSelectionTimeoutMS=5000, timeoutMS=5000)
             db = mongo_client[settings.mongo_database]
-        if db is not None:
-            try:
-                initialize_mongo(db, demo_date)
-            except Exception:
-                if mongo_client:
-                    mongo_client.close()
-                raise
-        recommendation_client = None
-        recommendation_db = None
-        if settings.recommendation_mongo_url:
-            from pymongo import MongoClient
-
-            recommendation_client = MongoClient(settings.recommendation_mongo_url,
-                                                serverSelectionTimeoutMS=5000, timeoutMS=5000)
-            recommendation_db = recommendation_client[settings.mongo_database]
+        try:
+            initialize_mongo(db)
+        except Exception:
+            if mongo_client:
+                mongo_client.close()
+            raise
         app.state.recommendations = RecommendationAgents(
             data, prompts, (os.getenv("RECOMMENDATION_MODEL") or "gpt-4.1-mini") if settings.use_ai else None,
-            database=recommendation_db,
+            database=db,
         )
-        stores = VisitorStores(settings.directory, demo_date, db)
+        stores = VisitorStores(demo_date, db)
         visitors = {}
 
         def build(guest_store, demo):
-            return Zippy(guest_store, local_clock, health or DemoHealth(), adapter, prompts,
+            return Zippy(guest_store, local_clock, health, adapter, prompts,
                          assistant, telephony if demo else DemoPhone(), photo_reader, push_sender, menu_images)
 
         def open_visitor(owner, *, demo, profile=None, create=False):
@@ -251,8 +246,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                     visitors[owner] = build(guest_store, demo)
             return visitors.get(owner)
 
-        default_store = store or (stores.open("scheduled-demo", demo=True, create=True) if db is not None
-                                  else JsonStore(settings.directory, demo_date))
+        default_store = store or stores.open("scheduled-demo", demo=True, create=True)
         zippy = build(default_store, True)
         app.state.zippy = zippy
         app.state.open_visitor = open_visitor
@@ -290,8 +284,6 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
         finally:
-            if recommendation_client:
-                recommendation_client.close()
             if mongo_client:
                 mongo_client.close()
 
@@ -322,6 +314,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     @app.exception_handler(LookupError)
     async def not_found(_request, error):
         return JSONResponse({"detail": str(error)}, status_code=404)
+
+    @app.exception_handler(RecommendationUnavailable)
+    async def recommendation_unavailable(_request, error):
+        return JSONResponse({"detail": str(error)}, status_code=503)
 
     @app.get("/health")
     @app.head("/health", include_in_schema=False)
@@ -393,7 +389,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
     @app.get("/persona", dependencies=protected)
     async def get_persona(zippy=Depends(service)):
-        persona = zippy.state.get("persona")
+        persona = zippy.health_persona()
         if persona is None:
             raise HTTPException(404, "No health data imported yet.")
         return persona
@@ -412,9 +408,35 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     async def today(zippy=Depends(service)):
         return zippy.today()
 
+    @app.post("/recommendations/food", dependencies=protected)
+    async def recommend_food(request: Request, body: SessionBody, zippy=Depends(service)):
+        items = await zippy.recommend(request.app.state.recommendations, "food", body.session_id)
+        return {"session_id": body.session_id, "items": items}
+
+    @app.post("/recommendations/food/places", dependencies=protected)
+    async def recommend_food_places(body: RecommendationPlacesBody, zippy=Depends(service)):
+        location = body.location.model_dump() if body.location and not zippy.store.demo else None
+        async with zippy.chat_locks[body.session_id]:
+            text, card = await zippy.recommendation_places(body.session_id, location=location)
+            async with zippy.mutation:
+                zippy.store.save()
+        return {"text": text, "card": card}
+
+    @app.get("/recommendations/health-history", dependencies=protected)
+    async def recommendation_health_history(request: Request, response: Response,
+                                            start: date | None = None, end: date | None = None,
+                                            zippy=Depends(service)):
+        end = end or zippy.now().date()
+        start = start or date.fromordinal(max(1, end.toordinal() - 13))
+        if not 0 <= (end - start).days < 90:
+            raise HTTPException(422, "Choose a date range of up to 90 days, with start on or before end.")
+        response.headers["Cache-Control"] = "no-store"
+        history = await request.app.state.recommendations.health_history(zippy, start, end)
+        return {"start": start, "end": end, **history}
+
     @app.get("/food-log", dependencies=protected)
     async def food_log(date: date | None = None, zippy=Depends(service)):
-        result = zippy.food_log(date.isoformat() if date else zippy.state["date"])
+        result = zippy.food_log(date.isoformat() if date else zippy.data_date())
         result["meals"] = [public_meal(meal, zippy.photos) for meal in result["meals"]]
         return result
 
@@ -424,9 +446,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         # Image elements send the visitor cookie but no app-specific demo header.
         if not any(request.app.state.open_visitor(visitor_id(request, demo), demo=demo) for demo in (False, True)):
             raise HTTPException(401, "Start a guest session first.")
-        data = request.app.state.recommendations.data
         try:
-            url = await data.catalog_image_url(food_id, dish) if data and (food_id or dish) else None
+            url = await request.app.state.recommendations.catalog_image_url(food_id, dish)
         except RecommendationUnavailable as error:
             raise HTTPException(503, str(error)) from None
         if not url:
@@ -459,7 +480,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             async with zippy.mutation:
                 if snapshot is not zippy.state:
                     raise HTTPException(409, "The demo was reset. Upload the photo again.")
-                entry = {"id": entry_id, "date": zippy.state["date"], "time": zippy.now().strftime("%H:%M"),
+                entry = {"id": entry_id, "date": zippy.data_date(), "time": zippy.now().strftime("%H:%M"),
                          "meal": "Meal", "source": "photo", "photo_key": key, **estimate}
                 public = public_meal(entry, zippy.photos)
                 if "photo_url" not in public:

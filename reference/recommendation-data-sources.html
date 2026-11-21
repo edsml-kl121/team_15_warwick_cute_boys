@@ -11,31 +11,21 @@
   <header>
     <nav aria-label="Course materials"><a href="../lessons/0002-trace-the-recommendation-bucket.html">Bucket lesson</a><a href="zippy-implementation.html">Repository map</a></nav>
     <h1>Recommendation data sources</h1>
-    <p>Both presenter agents refresh guest data from MongoDB when available. The food agent also reads the S3 food catalog.</p>
+    <p>MongoDB supplies recommendation context and the food catalog. Object storage supplies private images.</p>
   </header>
 
   <section>
     <h2>Which reads happen</h2>
     <dl>
-      <dt>Both agents first load guest context</dt>
-      <dd><code>load_recommendation_context</code> refreshes the profile, persona and meals through <code>read_guest_recommendation_data</code> when MongoDB and a guest ID are available. If the resulting context has a persona, no bucket persona lookup is needed. <a href="../BE/recommendations.py">Context loader</a> · <a href="../BE/storage.py">MongoDB query</a></dd>
-      <dt>Both agents, if history is missing and a bucket is configured</dt>
-      <dd>Read <code>body_data/user_profiles.json</code> for a unique case-insensitive display-name match. List the <code>personas/&lt;persona_id&gt;_</code> prefix, read the matching JSON and <code>body_data/body_health_wearable.json</code>, and keep the relevant persona rows. <a href="../BE/recommendations.py">Bucket lookup</a></dd>
-      <dt>Food agent</dt>
-      <dd>On the bucket persona path, also read <code>body_data/food_history_log.json</code>. With either persona source, read <code>body_data/food_db.json</code> for meal candidates and then query Shopee Food for similar dishes. The food route returns 503 if bucket access is required and unavailable. <a href="../BE/recommendations.py">Food branch</a> · <a href="../BE/main.py">Error mapping</a></dd>
-      <dt>Item agent</dt>
-      <dd>Use recent sleep or activity signals to choose a search term, then query Shopee Mall. In Ploy demo mode, an empty wearable summary can fall back to demo sleep. The agent can offer a general suggestion when no signal qualifies. An S3 read error returns 503 if a configured bucket persona lookup fails. <a href="../BE/recommendations.py">Item branch</a> · <a href="../BE/main.py">Error mapping</a></dd>
+      <dt>Guest context</dt>
+      <dd><code>load_recommendation_context</code> calls <code>read_guest_recommendation_data</code> by guest ID. MongoDB supplies the profile, stored persona and current day’s meals. <a href="../BE/recommendations.py">Context loader</a> · <a href="../BE/storage.py">MongoDB queries</a></dd>
+      <dt>Food catalog</dt>
+      <dd><code>read_food_catalog</code> reads the <code>food_db</code> document from the <code>food_catalog</code> collection. A later places request calls Shopee Food for restaurants. <a href="../BE/storage.py">Catalog query</a> · <a href="../BE/service.py">Places lookup</a></dd>
+      <dt>Item listings</dt>
+      <dd>The item branch derives sleep and activity signals from the guest history and calls Shopee Mall for product listings. <a href="../BE/recommendations.py">Item branch</a></dd>
+      <dt>Catalog image</dt>
+      <dd><code>GET /food-log/catalog-image</code> resolves the MongoDB catalog entry and redirects to a short-lived signed S3 URL when an eligible image exists. <a href="../BE/main.py">Image route</a> · <a href="../BE/recommendations.py">Image signing</a></dd>
     </dl>
-  </section>
-
-  <section>
-    <h2>Check a deployment</h2>
-    <ol>
-      <li>Identify the revision running on the correct Railway backend.</li>
-      <li>Check whether the backend’s S3 variables reference the bucket that contains the dataset. Check that its credentials allow reading the expected keys and listing the persona prefix. <a href="../BE/README.md#guest-storage-on-railway">Configuration</a></li>
-      <li>For evidence of the bucket persona path, use a designated demo guest with a unique matching bucket display name and no imported persona. An item recommendation based on imported history or demo sleep can succeed without a bucket read. A food recommendation exercises the catalog path even when the guest imported their history.</li>
-    </ol>
-    <p>The offline test substitutes a fake bucket and Shopee client. It covers both agents through the presenter route. <a href="../BE/tests/test_zippy.py">Presenter agent test</a></p>
   </section>
   <footer><a href="reusable-storage-functions.html">Reusable storage functions</a></footer>
 </main>

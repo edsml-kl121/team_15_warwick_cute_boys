@@ -87,6 +87,16 @@ The Today, Food log, Profile and Connect apps pages read `GET /today`, `GET /foo
 
 Feed items may carry `notify: {title, body}`, which shows the simulated lock screen, and `header_status` (`online`, `calling`, `in_call`), which updates the chat header.
 
+Recommendation feed items can use `food_log`, `profile`, `health_data`, and `today` in `references` to link to the guest’s data. A meal recommendation offers **Recommend places nearby** and **Skip**. The nearby search uses the same location settings as chat.
+
+The following routes use the current guest session. Prefix them with `/api` when using the Caddy frontend.
+
+| Method and path | Input and result |
+|---|---|
+| `POST /recommendations/food` | `{session_id}` creates a meal recommendation using the guest’s history and food catalog in Railway MongoDB. Returns `{session_id, items}` and posts the recommendation to that session. |
+| `POST /recommendations/food/places` | `{session_id, location?: {lat, lng}}` searches around the optional coordinates, with Silom as the default. Returns `{text, card}` for the session’s pending recommendation. |
+| `GET /recommendations/health-history` | Optional inclusive `start` and `end` dates in `YYYY-MM-DD`. Returns wearable readings, workouts, weights and body-composition scans from the current guest’s record. Defaults to 14 days and supports up to 90 days. |
+
 ## Health history import
 
 Profile › Health data reads `GET /persona` (404 until imported) and imports a JSON file with `PUT /persona`. The file follows the persona shape: `profile` (requires `persona_id` and `display_name`), `food_history_log`, `wearable_daily`, `workouts`, `weights` and `body_composition_scans`. The frontend rejects files over 5 MB before upload. Imported meals appear in the Food log for their dates, and Shopee Food orders show their restaurant.
