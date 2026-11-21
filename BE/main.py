@@ -274,6 +274,10 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             return await open_voice_session(
                 agent, model=os.getenv("REALTIME_MODEL") or "gpt-realtime-2.1", voice=os.getenv("REALTIME_VOICE"),
                 languages=[code.strip() for code in os.getenv("TRANSCRIPTION_LANGUAGES", "en").split(",") if code.strip()],
+                threshold=float(os.getenv("VOICE_VAD_THRESHOLD") or 0.7),
+                silence_ms=int(os.getenv("VOICE_SILENCE_MS") or 500),
+                noise_reduction=None if os.getenv("VOICE_NOISE_REDUCTION") == "off"
+                else os.getenv("VOICE_NOISE_REDUCTION") or "near_field",
             )
 
         app.state.voice_sessions = voice_sessions or default_voice_session

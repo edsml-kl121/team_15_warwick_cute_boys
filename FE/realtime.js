@@ -77,7 +77,13 @@
         return;
       }
       const message = JSON.parse(event.data);
-      // They talked over Zippy: drop the audio that hasn't played yet.
+      // Something that might be speech: pause Zippy, keeping the rest of its reply. If it was only noise, carry on;
+      // if they said words over Zippy, drop the audio that hasn't played yet.
+      if (message.type === 'hold') {
+        player.port.postMessage({ type: 'hold' });
+        onState('listening');
+      }
+      if (message.type === 'resume') player.port.postMessage({ type: 'resume' });
       if (message.type === 'interrupted') player.port.postMessage({ type: 'stop' });
       onEvent(message);
     }
@@ -93,6 +99,7 @@
         player = new AudioWorkletNode(playContext, 'pcm-playback', { outputChannelCount: [1] });
         player.port.onmessage = event => {
           if (event.data?.type === 'drained' && ready) onState('listening');
+          if (event.data?.type === 'playing' && ready) onState('replying');
         };
         player.connect(playContext.destination);
 
