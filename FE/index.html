@@ -1,24 +1,89 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mew starter railway</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script type="module" src="/app.js"></script>
-  </head>
-  <body>
-    <main>
-      <h1>Mew starter railway</h1>
-      <p>Enter your name to get a greeting from the backend.</p>
-      <form id="greeting-form" action="/api/greet" method="get">
-        <label for="name">Your name</label>
-        <div class="form-row">
-          <input id="name" name="name" autocomplete="given-name" required maxlength="60">
-          <button type="submit">Get greeting</button>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#fbfaf7">
+  <meta name="zippy-api" content="./api/">
+  <title>Zippy</title>
+  <link rel="stylesheet" href="./reference.css">
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="./services.js"></script>
+  <script defer src="./voice.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <main class="ph" aria-label="Zippy">
+    <header class="zh">
+      <button type="button" class="ib" data-action="open-history" aria-label="Chat history" aria-haspopup="dialog">
+        <i class="material-icons" aria-hidden="true">menu</i>
+      </button>
+      <div class="brand"><img class="av" src="./assets/zippy-face.png" alt=""><h1>Zippy</h1></div>
+      <button type="button" class="ib" data-action="new-chat" aria-label="New chat">
+        <i class="material-icons" aria-hidden="true">edit_square</i>
+      </button>
+    </header>
+    <section class="chat" aria-label="Conversation">
+      <div class="empty-chat">
+        <img class="av" src="./assets/zippy-face.png" alt="">
+        <p>What can I help with?</p>
+      </div>
+      <div class="live-turns" role="log" aria-label="Messages"></div>
+    </section>
+    <footer class="dock" data-mode="idle">
+      <div class="dock-default">
+        <button type="button" class="dk" data-action="type" aria-label="Type">
+          <i class="material-icons" aria-hidden="true">keyboard</i>
+        </button>
+        <button type="button" class="mic" data-action="voice" aria-label="Talk to Zippy">
+          <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </button>
+        <button type="button" class="dk" data-action="attach" aria-label="Attach a photo">
+          <i class="material-icons" aria-hidden="true">photo_camera</i>
+        </button>
+      </div>
+      <form class="dock-keyboard" aria-label="Message Zippy" hidden>
+        <div class="composer-pill">
+          <input class="chat-input" aria-label="Message" placeholder="Ask Zippy" autocomplete="off" maxlength="1500" required>
+          <button class="send-message" type="submit" aria-label="Send message">
+            <i class="material-icons" aria-hidden="true">north</i>
+          </button>
         </div>
+        <button type="button" class="btn2 dock-back" data-action="dock-back">Back</button>
       </form>
-      <p id="greeting-result" role="status"></p>
-    </main>
-  </body>
+      <div class="dock-voice" data-state="idle" hidden>
+        <p class="voice-transcript" aria-label="Voice transcript"></p>
+        <span class="visually-hidden voice-status" role="status"></span>
+      </div>
+    </footer>
+  </main>
+  <dialog class="history-modal" aria-labelledby="history-title">
+    <div class="history-scrim" data-action="close-history"></div>
+    <aside class="history-drawer">
+      <header>
+        <h2 id="history-title">Chats</h2>
+        <button type="button" class="ib" data-action="close-history" aria-label="Close chat history" autofocus>
+          <i class="material-icons" aria-hidden="true">close</i>
+        </button>
+      </header>
+      <button type="button" class="btn" data-action="new-chat">New chat</button>
+      <p class="history-empty">Your conversations will appear here.</p>
+      <ul class="history-list"></ul>
+    </aside>
+  </dialog>
+  <input type="file" id="meal-photo" accept="image/*" hidden>
+  <dialog class="order-dialog" aria-labelledby="order-title">
+    <form method="dialog">
+      <button type="submit" class="ib" aria-label="Close order review">
+        <i class="material-icons" aria-hidden="true">close</i>
+      </button>
+    </form>
+    <h2 id="order-title">Review your order</h2>
+    <div class="order-details"></div>
+    <button type="button" class="sbtn" data-action="checkout">Continue to ShopeePay</button>
+    <a class="sbtn order-link" target="_blank" rel="noopener noreferrer" hidden>Open ShopeePay</a>
+  </dialog>
+  <p id="feedback" role="status"></p>
+  <noscript>Zippy needs JavaScript to open the chat.</noscript>
+</body>
 </html>

@@ -1,0 +1,53 @@
+/* Screen styles adapted from the supplied Zippy demo. */
+.ph{position:relative;width:390px;height:844px;overflow:hidden;border-radius:44px;border:1px solid rgba(21,28,39,.12);font-family:Quicksand,sans-serif;color:#151c27;background:#fbfaf7;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(21,28,39,.12)}
+.zh{flex:none;display:flex;align-items:center;gap:10px;padding:2px 14px 8px;border-bottom:1px solid #ebe9e2}
+.ib{width:40px;height:40px;border-radius:999px;border:none;background:#efdfce;display:grid;place-items:center;cursor:pointer;color:#151c27;flex:none}
+.av{border-radius:999px;overflow:hidden;background:#f6e9cc;flex:none}
+.chat{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:14px;padding:12px 16px 8px}
+.zm{display:flex;gap:8px;align-items:flex-start;flex:none}
+.zt{font-size:15px;line-height:22px;font-weight:600;color:#151c27;text-wrap:pretty}
+.um{align-self:flex-end;max-width:260px;padding:9px 14px;border-radius:20px 20px 6px 20px;background:#3a6758;color:#fff;font-size:14px;line-height:20px;font-weight:600;flex:none}
+.card{flex:none;display:flex;flex-direction:column;border-radius:24px;background:#fff;border:1px solid #ebe9e2;overflow:hidden}
+.eb{font-size:11px;font-weight:700;letter-spacing:1.3px}
+.shp{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px 0 3px;border-radius:999px;background:#fff1ec;color:#a8321a;font-size:11px;font-weight:700;white-space:nowrap}
+.shl{width:16px;height:16px;border-radius:5px;overflow:hidden;background:#fff;flex:none;display:block}
+.btn{height:44px;border-radius:999px;border:none;background:#151c27;color:#fff;font:700 14px Quicksand,sans-serif;cursor:pointer;padding:0 18px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn2{height:44px;border-radius:999px;border:1px solid #ebe9e2;background:#fff;color:#151c27;font:700 14px Quicksand,sans-serif;cursor:pointer;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.sbtn{height:40px;border-radius:999px;border:none;background:#c4381c;color:#fff;font:700 14px Quicksand,sans-serif;cursor:pointer;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.chip{height:36px;padding:0 14px;border-radius:999px;border:1px solid #ebe9e2;background:#fff;color:#151c27;font:700 13px Quicksand,sans-serif;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.chip.on{background:#151c27;color:#fff;border-color:#151c27}
+.dock{flex:none;padding:8px 40px 26px;display:flex;align-items:center;justify-content:space-between}
+.dk{width:44px;height:44px;border:none;background:transparent;color:#717975;display:grid;place-items:center;cursor:pointer}
+.mic{width:64px;height:64px;border-radius:999px;border:none;background:#3a6758;display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 8px rgba(0,0,0,.2);padding:0}
+.sheetbg{position:absolute;inset:0;background:rgba(21,28,39,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:3}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:4;background:#fbfaf7;border-radius:28px 28px 0 0;padding:10px 20px 30px;display:flex;flex-direction:column;gap:14px}
+.row{display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:600;color:#404945}
+.hist{flex:none;display:flex;flex-direction:column;gap:12px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,rgba(0,0,0,.25) 40%,rgba(0,0,0,.7) 100%);mask-image:linear-gradient(to bottom,transparent 0,rgba(0,0,0,.25) 40%,rgba(0,0,0,.7) 100%)}
+.hist .zt{font-size:14px;line-height:20px;color:#404945}
+.hist .um{font-size:13px;padding:7px 12px}
+.dvd{flex:none;display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#717975;white-space:nowrap}
+.dvd span{flex:1;height:1px;background:#ebe9e2}
+.mini{flex:none;align-self:flex-start;margin-left:32px;max-width:280px;display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-radius:16px;background:#fff;border:1px solid #ebe9e2;font-size:12px;line-height:16px;font-weight:600;color:#404945}
+.mini b{display:block;font-size:13px;color:#151c27}
+.lbl{font-size:13px;line-height:18px;font-weight:600;color:#404945}
+.hero{font-size:48px;line-height:50px;font-weight:700;letter-spacing:-1.5px;color:#151c27}
+.mut{font-size:12px;line-height:16px;font-weight:600;color:#717975}
+.tk{font-size:10px;font-weight:600;color:#717975;font-variant-numeric:tabular-nums}
+.gh{flex:none;display:flex;align-items:center;gap:10px;padding:2px 14px 10px}
+.gt{flex:1;text-align:center;font-size:16px;font-weight:700}
+.gb{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:14px;padding:6px 16px 24px}
+.sec{font-size:13px;font-weight:700;color:#404945;padding:0 4px}
+.gr{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #ebe9e2;font-size:14px;font-weight:600;color:#151c27}
+.gr:first-child{border-top:none}
+.gi{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none;background:#f3eee6;color:#404945}
+.gv{font-size:14px;font-weight:600;color:#404945;font-variant-numeric:tabular-nums}
+.sw{width:44px;height:26px;border-radius:999px;border:none;padding:3px;box-sizing:border-box;cursor:pointer;flex:none;display:flex}
+.sw span{width:20px;height:20px;border-radius:999px;background:#fff}
+.sw.on{background:#3a6758;justify-content:flex-end}
+.sw.off{background:#d5ddd9;justify-content:flex-start}
+.bar{height:6px;border-radius:999px;background:#eef1ef;display:flex}
+.bar span{border-radius:999px;background:#3a6758}
+.ask{position:absolute;left:16px;right:16px;bottom:24px;height:56px;border-radius:999px;border:none;background:#151c27;color:#fff;display:flex;align-items:center;gap:10px;padding:0 8px 0 10px;font:600 15px Quicksand,sans-serif;cursor:pointer;box-shadow:0 10px 24px rgba(21,28,39,.25)}
+.tl{display:flex;flex-direction:column;gap:2px;max-width:85%;padding:8px 12px;border-radius:16px;font-size:13px;line-height:18px;font-weight:600}
+@keyframes zpwave{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+@keyframes zpring{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.7);opacity:0}}
