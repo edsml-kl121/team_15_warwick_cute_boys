@@ -8,7 +8,7 @@
   };
 
   // How long the speaker must pause after their last words before the message counts as finished.
-  const PAUSE_MS = 1500;
+  const PAUSE_MS = 2500;
 
   window.createZippyVoice = ({ onState, onTranscript, onPause, transcribe }) => {
     let cancel = () => {};
@@ -16,37 +16,52 @@
     let current = 0;
 
     function recognize(session) {
-      const recognition = new SpeechRecognition();
-      recognition.lang = document.documentElement.lang || 'en';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.onstart = () => {
-        if (session === current) onState('listening', 'Listening… I’ll send when you pause.');
-      };
-      let heard = false;
+      let text = '';
       let pauseTimer;
-      recognition.onresult = ({ results }) => {
-        if (session !== current) return;
-        const text = Array.from(results, result => result[0].transcript).join(' ').trim();
-        heard = Boolean(text);
-        onTranscript(text);
-        clearTimeout(pauseTimer);
-        if (heard) pauseTimer = setTimeout(() => { if (session === current) onPause?.(); }, PAUSE_MS);
-      };
-      let errorMessage;
-      recognition.onerror = ({ error }) => {
-        errorMessage = speechErrors[error] || 'Voice input is unavailable. You can still type.';
-      };
-      recognition.onend = () => {
-        clearTimeout(pauseTimer);
-        if (session === current) {
-          if (heard && !errorMessage) onPause?.();
-          onState('idle', errorMessage || (heard ? 'Tap the waveform to send.' : speechErrors['no-speech']));
-        }
-      };
-      cancel = () => { clearTimeout(pauseTimer); recognition.abort(); };
-      finish = () => recognition.stop();
-      recognition.start();
+      let stopping = false;
+
+      function listen() {
+        const recognition = new SpeechRecognition();
+        recognition.lang = document.documentElement.lang || 'en';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.onstart = () => {
+          if (session === current) onState('listening', 'Listening… I’ll send when you pause.');
+        };
+        const earlier = text;
+        recognition.onresult = ({ results }) => {
+          if (session !== current) return;
+          const latest = Array.from(results, result => result[0].transcript).join(' ').trim();
+          text = [earlier, latest].filter(Boolean).join(' ');
+          onTranscript(text);
+          clearTimeout(pauseTimer);
+          if (text) pauseTimer = setTimeout(() => { if (session === current) onPause?.(); }, PAUSE_MS);
+        };
+        let errorMessage;
+        recognition.onerror = ({ error }) => {
+          // Words heard before a restart still count, so silence afterwards is not "no speech".
+          if (error === 'no-speech' && text) return;
+          errorMessage = speechErrors[error] || 'Voice input is unavailable. You can still type.';
+        };
+        recognition.onend = () => {
+          if (session !== current) return clearTimeout(pauseTimer);
+          // Safari on iPhone ends recognition by itself after a short silence, even in continuous mode.
+          // Keep listening; the pause timer keeps running and still sends the message.
+          if (!stopping && text && !errorMessage) {
+            try {
+              return listen();
+            } catch { /* Send what was heard instead. */ }
+          }
+          clearTimeout(pauseTimer);
+          if (text && !errorMessage) onPause?.();
+          onState('idle', errorMessage || (text ? 'Tap the waveform to send.' : speechErrors['no-speech']));
+        };
+        recognition.start();
+        cancel = () => { clearTimeout(pauseTimer); recognition.abort(); };
+        finish = () => { stopping = true; recognition.stop(); };
+      }
+
+      listen();
     }
 
     async function record(session) {

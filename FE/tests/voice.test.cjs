@@ -13,6 +13,7 @@ class FakeRecognition {
   stop() { this.stopped = true; }
   abort() {}
   hear(text) { this.onresult({ results: [[{ transcript: text }]] }); }
+  fail(error) { this.onerror({ error }); }
   end() { this.onend(); }
 }
 
@@ -22,48 +23,83 @@ function startVoice() {
     window, document: { documentElement: { lang: 'en' } },
     setTimeout: (...args) => setTimeout(...args), clearTimeout: id => clearTimeout(id),
   });
-  const calls = { paused: 0, states: [] };
+  const calls = { paused: 0, states: [], transcript: '' };
   const voice = window.createZippyVoice({
     onState: (state, message) => calls.states.push(state),
-    onTranscript: () => {},
+    onTranscript: text => { calls.transcript = text; },
     onPause: () => { calls.paused += 1; },
   });
   voice.start();
-  return { recognition: FakeRecognition.last, calls };
+  return { voice, recognition: FakeRecognition.last, calls };
 }
 
-test('a pause after speaking signals that the message is ready to send', () => {
+function withTimers(run) {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const { recognition, calls } = startVoice();
-    recognition.hear('book a table');
-    mock.timers.tick(1000);
-    recognition.hear('book a table for two');
-    mock.timers.tick(1000);
-    assert.equal(calls.paused, 0, 'still speaking: words kept arriving');
-    mock.timers.tick(600);
-    assert.equal(calls.paused, 1);
+    run();
   } finally {
     mock.timers.reset();
   }
-});
+}
 
-test('recognition ending on its own after speech also signals ready to send', () => {
+test('a pause after speaking signals that the message is ready to send', () => withTimers(() => {
+  const { recognition, calls } = startVoice();
+  recognition.hear('book a table');
+  mock.timers.tick(2000);
+  recognition.hear('book a table for two');
+  mock.timers.tick(2000);
+  assert.equal(calls.paused, 0, 'a two-second pause to think is not the end of the message');
+  mock.timers.tick(600);
+  assert.equal(calls.paused, 1);
+}));
+
+test('recognition ending on its own after speech keeps listening and keeps the words', () => withTimers(() => {
   const { recognition, calls } = startVoice();
   recognition.hear('book a table');
   recognition.end();
+  assert.equal(calls.paused, 0, 'Safari ended recognition, not the speaker');
+  assert.notEqual(FakeRecognition.last, recognition, 'a fresh recognition picks up listening');
+  assert.notEqual(calls.states.at(-1), 'idle');
+  FakeRecognition.last.hear('for two');
+  assert.equal(calls.transcript, 'book a table for two');
+}));
+
+test('silence after recognition restarts still sends once the pause elapses', () => withTimers(() => {
+  const { recognition, calls } = startVoice();
+  recognition.hear('book a table');
+  mock.timers.tick(1000);
+  recognition.end();
+  assert.equal(calls.paused, 0);
+  mock.timers.tick(1600);
+  assert.equal(calls.paused, 1, 'the pause counts from the last words, across the restart');
+}));
+
+test('a no-speech error after the speaker has already talked does not drop their words', () => withTimers(() => {
+  const { recognition, calls } = startVoice();
+  recognition.hear('book a table');
+  recognition.end();
+  FakeRecognition.last.fail('no-speech');
+  FakeRecognition.last.end();
+  assert.notEqual(calls.states.at(-1), 'idle');
+  mock.timers.tick(2500);
   assert.equal(calls.paused, 1);
+  assert.equal(calls.transcript, 'book a table');
+}));
+
+test('finishing the message stops recognition instead of restarting it', () => {
+  const { voice, recognition, calls } = startVoice();
+  recognition.hear('book a table');
+  voice.stop();
+  assert.ok(recognition.stopped);
+  recognition.end();
+  assert.equal(FakeRecognition.last, recognition);
+  assert.equal(calls.states.at(-1), 'idle');
 });
 
-test('silence without any words never signals ready to send', () => {
-  mock.timers.enable({ apis: ['setTimeout'] });
-  try {
-    const { recognition, calls } = startVoice();
-    mock.timers.tick(5000);
-    recognition.end();
-    assert.equal(calls.paused, 0);
-    assert.equal(calls.states.at(-1), 'idle');
-  } finally {
-    mock.timers.reset();
-  }
-});
+test('silence without any words never signals ready to send', () => withTimers(() => {
+  const { recognition, calls } = startVoice();
+  mock.timers.tick(5000);
+  recognition.end();
+  assert.equal(calls.paused, 0);
+  assert.equal(calls.states.at(-1), 'idle');
+}));

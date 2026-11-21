@@ -319,12 +319,14 @@
       const goal = (name, label, value) => h('div', { class: 'gr' }, h('span', { class: 'gi' }, icon(name, 'font-size:18px')),
         h('span', { style: 'flex:1', text: label }), h('span', { class: 'gv', text: value }));
       const about = (label, value) => h('div', { class: 'gr' }, h('span', { style: 'flex:1', text: label }), h('span', { class: 'gv', text: value }));
+      const initial = data.name?.match(/\p{L}\p{M}*/u)?.[0] || '?';
 
       return [
         header(backButton('#'), 'Profile'),
         h('div', { class: 'gb page-body' },
           h('div', { class: 'profile-head' },
-            h('span', { class: 'av', style: 'width:64px;height:64px' }, h('img', { src: './assets/ploy.webp', alt: '' })),
+            h('span', { class: 'av profile-avatar', 'aria-hidden': 'true' },
+              service.demo ? h('img', { src: './assets/ploy.webp', alt: '' }) : initial),
             h('span', {}, h('b', { class: 'profile-name', text: data.name }),
               h('span', { class: 'mut', text: `${data.location} · with Zippy since ${data.member_since}` }))),
           h('span', { class: 'sec', text: 'Daily goals' }),

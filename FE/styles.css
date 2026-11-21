@@ -307,6 +307,17 @@ button:disabled { cursor: wait; opacity: .65; }
 .meal-text b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meal-num { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
 .profile-head { display: flex; align-items: center; gap: 14px; padding: 4px; }
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  background: #e6f2ec;
+  color: #3a6758;
+  font-size: 28px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
 .profile-head > span:last-child { display: flex; flex-direction: column; gap: 2px; }
 .profile-name { font-size: 22px; line-height: 28px; }
 .app-logo { border-radius: 14px; overflow: hidden; background: #fff; border: 1px solid #ebe9e2; display: grid; place-items: center; flex: none; color: #404945; }
