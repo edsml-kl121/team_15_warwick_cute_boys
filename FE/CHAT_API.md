@@ -85,6 +85,10 @@ Profile › Health data reads `GET /persona` (404 until imported) and imports a 
 
 The Caddy proxy adds the server token to demo routes. Anyone who can reach the frontend can trigger or reset the demo. Restrict the frontend URL or remove the demo routes from the Caddy matcher outside rehearsals.
 
+The presenter also exposes **Recommend food** and **Recommend an item** at `/presenter.html` and the Caddy alias `/presentor.html`. These buttons require a guest name and `X-Presenter-Key` and post `{guest_name, agent: "food" | "item"}` to `/presenter/trigger`. Results reuse the meal, places and product comparison cards.
+
+Recommendation cards include a short reason grounded in the guest’s available logs, goals or wearable data. Meal cards use `GET /food-log/catalog-image?food_id=…` to fetch a fresh signed image redirect for the private bucket. Older cards can look up the catalog dish by name.
+
 ## Web push
 
 The app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` shows pushes, and the menu's **Turn on notifications** subscribes. iPhone push needs iOS 16.4 or later, HTTPS, and Zippy opened from the Home Screen.
@@ -95,4 +99,4 @@ The app installs to the iOS Home Screen with `manifest.webmanifest`, `sw.js` sho
 4. **Send.** Each feed item with `notify` is pushed as `{"title", "body", "url": "./", "tag"}`. The service worker shows `Zippy · <title>` and opens the app on tap. Gone devices (404 or 410) are removed.
 5. **Proxy.** The Caddyfile forwards `/api/push/*` and `/api/presenter/*` with the server token.
 
-The presenter dashboard targets a guest by display name with the presenter key (`POST /presenter/trigger`), so a laptop can send a moment to a phone. The Ploy demo session option still works from the same browser.
+The presenter dashboard targets every guest with the given display name using the presenter key (`POST /presenter/trigger`). Matching is case-insensitive. The activity log shows how many guests were triggered when a name is shared. The Ploy demo session option still works from the same browser.

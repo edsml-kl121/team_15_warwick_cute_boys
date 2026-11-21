@@ -2,7 +2,7 @@
   const base = document.querySelector('meta[name="zippy-api"]')?.content;
   const transcription = document.querySelector('meta[name="zippy-transcribe"]')?.content;
   const page = new URL(location.href);
-  const demo = page.searchParams.get('demo') === 'ploy' || page.pathname.endsWith('/presenter.html');
+  const demo = page.searchParams.get('demo') === 'ploy' || /\/present[eo]r\.html$/.test(page.pathname);
 
   async function send(url, body, method = body == null ? 'GET' : 'POST', extraHeaders = {}) {
     if (location.protocol === 'file:' && new URL(url, location.href).protocol === 'file:') {
@@ -125,9 +125,12 @@
           chips: (data.events || []).map(event => `${event.at} ${event.label}`),
           rows: Object.entries(data.totals || {}).map(([stage, minutes]) => row(stage === 'rem' ? 'REM' : stage[0].toUpperCase() + stage.slice(1), duration(minutes))),
           note: [data.source, data.minutes && `${duration(data.minutes)} asleep`, data.start && data.end && `${data.start} – ${data.end}`].filter(Boolean).join(' · ') }];
-      case 'meal':
+      case 'meal': {
+        const query = new URLSearchParams(data.food_id ? { food_id: data.food_id } : { dish: data.dish });
         return [{ title: data.dish, icon: 'restaurant', value: amount(data.protein_g, 'g protein'), description: data.why,
+          imageUrl: base && data.dish ? urlFor('food-log/catalog-image?' + query).href : null,
           rows: [row('Energy', amount(data.kcal, 'kcal'))] }];
+      }
       case 'activity':
         return [{ title: 'Steps today', icon: 'directions_walk', value: amount(data.steps, '')?.trim(),
           meters: Number.isFinite(data.steps_goal_pct) ? [{ label: 'Steps goal', text: `${data.steps_goal_pct}%`, value: data.steps_goal_pct, max: 100 }] : [],

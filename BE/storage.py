@@ -22,10 +22,11 @@ def initial_state(date, demo, profile=None):
 
 
 class JsonStore:
-    def __init__(self, directory, date, *, demo=True, profile=None):
+    def __init__(self, directory, date, *, demo=True, profile=None, owner=None):
         self.path = Path(directory) / "demo.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.demo = demo
+        self.owner = owner
         self.state = json.loads(self.path.read_text()) if self.path.exists() else initial_state(date, demo, profile)
 
     def save(self):
@@ -69,6 +70,19 @@ def initialize_mongo(database, date):
         {"dataset_id": DATASET, "date": date},
         {"$setOnInsert": seed(date)["day_data"][date]}, upsert=True,
     )
+
+
+def read_guest_recommendation_data(database, owner, day):
+    """Read fresh recommendation inputs for one authenticated guest ID."""
+    guest = database.guests.find_one({"_id": owner}, {"_id": 0, "profile": 1, "persona": 1})
+    if guest is None:
+        return None
+    return {
+        **guest,
+        "meals": list(database.meals.find(
+            {"guest_id": owner, "date": day}, {"_id": 0, "guest_id": 0, "photo_key": 0},
+        )),
+    }
 
 
 class MongoStore:
@@ -184,7 +198,7 @@ class VisitorStores:
         directory = self.directory / "visitors" / owner
         if not create and not (directory / "demo.json").exists():
             return None
-        store = JsonStore(directory, self.date, demo=demo, profile=profile)
+        store = JsonStore(directory, self.date, demo=demo, profile=profile, owner=owner)
         if create:
             store.save()
         return store

@@ -4,6 +4,10 @@
   // Every proactive or scheduled moment the backend can push. `preview` is sample copy for a local test only;
   // the real notification text comes from the backend's feed item.
   const FLOWS = [
+    { scene: 'Recommendation agents', name: 'Recommend food', body: { agent: 'food' },
+      needs: 'Uses the guest’s food and health history, then checks Shopee Food for nearby matches.' },
+    { scene: 'Recommendation agents', name: 'Recommend an item', body: { agent: 'item' },
+      needs: 'Uses recent sleep or activity to find a relevant product on Shopee Mall.' },
     { scene: 'Scene 1 · 07:02', name: 'Morning sleep insight', body: { moment: 'morning_sleep' },
       preview: ['Sleep insight', 'You slept 5 h 10 m, your 3rd short night this week. Light woke you up at 5:40. Want help?'] },
     { scene: 'Scene 1 · 22:30', name: 'Eye mask reminder', body: { reminder: '22:30' },
@@ -67,9 +71,14 @@
       if (!keyInput.value) throw new Error('Enter the presenter key.');
       const result = await service.json('presenter/trigger', { guest_name: guestName, ...body }, 'POST',
         { 'X-Presenter-Key': keyInput.value });
+      if (result.status === 'partial') {
+        return `triggered for ${result.guests} of ${result.matched_guests} matching guests. The other triggers failed.`;
+      }
+      if (result.guests > 1) return `triggered for all ${result.guests} guests named ${guestName}.`;
       return result.devices ? `sent to ${guestName} and ${result.devices} device${result.devices > 1 ? 's' : ''}.`
         : `sent to ${guestName}'s chat. Their phone hasn't turned notifications on yet.`;
     }
+    if (body.agent) throw new Error('Enter a guest name and presenter key to run this agent.');
     await service.json('demo/trigger', { session_id: session(), ...body });
     return 'sent.';
   }
@@ -105,10 +114,11 @@
       time.setAttribute('aria-label', `${flow.name} time`);
       actions.append(time);
     }
-    actions.append(
-      button('btn', 'Trigger', `Trigger ${flow.name}`, control => run(control, flow.name, () => trigger(flow, row))),
-      button('btn2', 'Preview here', `Preview ${flow.name} notification on this device`, control => run(control, flow.name, () => preview(flow))),
-    );
+    actions.append(button('btn', 'Trigger', `Trigger ${flow.name}`, control => run(control, flow.name, () => trigger(flow, row))));
+    if (flow.preview) {
+      actions.append(button('btn2', 'Preview here', `Preview ${flow.name} notification on this device`,
+        control => run(control, flow.name, () => preview(flow))));
+    }
     row.append(text, actions);
     return row;
   }

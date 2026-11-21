@@ -1,11 +1,15 @@
+import io
 import json
 from contextlib import contextmanager
+from hashlib import sha256
+from types import SimpleNamespace
 
 import mongomock
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from main import Settings, create_app
+from recommendations import BucketRecommendationData
 from storage import COLLECTIONS
 
 
@@ -77,9 +81,11 @@ class FakePhotos:
 def demo(tmp_path, **options):
     settings = Settings()
     settings.token = "test-token"
+    settings.presenter_key = "local-presenter"
     settings.directory = tmp_path
     settings.use_ai = False
     settings.mongo_url = None
+    settings.recommendation_mongo_url = None
     settings.secure_cookies = False
     fake = FakeShopee()
     options.setdefault("database", mongomock.MongoClient().zippy)
@@ -303,6 +309,156 @@ class FakePush:
     async def send(self, subscriptions, notification):
         self.sent.append(([item["endpoint"] for item in subscriptions], notification))
         return set(self.gone)
+
+
+def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
+    profile = {
+        "persona_id": "P01", "display_name": "Krit", "daily_calorie_target": 1900,
+        "macro_targets": {"protein_g": 90}, "cuisine_prefs": ["Thai"], "favorite_dishes": [],
+        "allergies": ["peanuts"], "home_area": {"lat": 13.73, "lng": 100.53},
+    }
+    objects = {
+        "body_data/user_profiles.json": {"personas": [profile]},
+        "personas/P01_krit.json": {"profile": profile},
+        "body_data/body_health_wearable.json": {"daily": [
+            {"persona_id": "P01", "date": "2026-11-20", "sleep_hours": 5.5},
+            {"persona_id": "P02", "date": "2026-11-20", "sleep_hours": 15},
+        ]},
+        "body_data/food_history_log.json": {"entries": [
+            {"persona_id": "P01", "date": "2026-11-21",
+             "items": [{"catalog_food_id": "rice", "dish_name": "Rice"}],
+             "meal_totals": {"calories": 1350, "protein_g": 55}},
+            {"persona_id": "P02", "date": "2026-11-21", "meal_totals": {"calories": 9000}},
+        ]},
+        "body_data/food_db.json": {"foods": [
+            {"food_id": "chicken", "menu": "Chicken salad", "role": "salad", "cuisine": "Thai",
+             "image_url": "https://hackathon.t3.storageapi.dev/food_db/chicken%20salad.jpg",
+             "allergens": [], "nutrition": {"calories": 400, "protein_g": 35}},
+            {"food_id": "peanut", "menu": "Thai peanut salad", "role": "salad", "cuisine": "Thai",
+             "image_url": "https://hackathon.t3.storageapi.dev/body_data/user_profiles.json",
+             "allergens": ["peanut"], "nutrition": {"calories": 400, "protein_g": 45}},
+        ]},
+    }
+
+    class Bucket:
+        meta = SimpleNamespace(endpoint_url="https://t3.storageapi.dev")
+
+        def generate_presigned_url(self, method, *, Params, ExpiresIn):
+            assert method == "get_object"
+            assert Params == {"Bucket": "hackathon", "Key": "food_db/chicken salad.jpg"}
+            assert ExpiresIn == 900
+            return "https://hackathon.t3.storageapi.dev/food_db/chicken%20salad.jpg?signature=test"
+
+        def list_objects_v2(self, *, Bucket, Prefix, MaxKeys):
+            assert Bucket == "hackathon"
+            return {"Contents": [{"Key": key} for key in objects if key.startswith(Prefix)]}
+
+        def get_object(self, *, Bucket, Key):
+            assert Bucket == "hackathon"
+            return {"Body": io.BytesIO(json.dumps(objects[Key]).encode())}
+
+    data = BucketRecommendationData(Bucket(), "hackathon")
+    guest = {"X-Zippy-Demo": "0"}
+    presenter = {"X-Presenter-Key": "local-presenter"}
+    with demo(tmp_path, recommendation_data=data) as (client, simulator):
+        assert client.post("/visitor", headers=guest, json={"name": "Krit", "budget_thb": 270}).is_success
+        body = {"guest_name": "krit", "agent": "food"}
+        assert client.post("/presenter/trigger", json=body).status_code == 403
+        assert client.post("/presenter/trigger", json={**body, "moment": "dinner_tip"},
+                           headers=presenter).status_code == 400
+        result = client.post("/presenter/trigger", json=body, headers=presenter)
+        assert result.is_success, result.text
+        assert result.json()["session_id"] == "presenter"
+        feed = "/feed?session_id=presenter"
+        meal, places = cards(client.get(feed, headers=guest).json())
+        assert meal["dish"] == "Chicken salad"
+        assert meal["food_id"] == "chicken"
+        assert "35 g left toward today’s protein goal" in meal["why"]
+        image = client.get("/food-log/catalog-image?food_id=chicken", follow_redirects=False)
+        assert image.status_code == 307 and image.headers["location"].endswith("?signature=test")
+        assert client.get("/food-log/catalog-image", params={"dish": "Chicken salad"},
+                          follow_redirects=False).headers["location"] == image.headers["location"]
+        assert client.get("/food-log/catalog-image?food_id=peanut").status_code == 404
+        assert client.get("/food-log/catalog-image?food_id=chicken",
+                          headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert [p["price_thb"] for p in places["places"]] == [265, 245]
+        assert simulator.calls[-1] == ("find_similar_dishes", {
+            "dish": "Chicken salad", "calories": 400, "protein_g": 35,
+            "limit": 35, "lat": 13.73, "lng": 100.53,
+        })
+        assert not client.get(feed).json()
+
+        result = client.post("/presenter/trigger", json={**body, "agent": "item"}, headers=presenter)
+        assert result.is_success, result.text
+        entries = client.get(feed, headers=guest).json()
+        assert any("5.5 hours" in entry.get("text", "") and "below your 7-hour goal" in entry["text"]
+                   for entry in entries)
+        assert cards(entries)[-1]["products"][0]["item_id"] == "p_eyemask"
+        assert simulator.calls[-1] == ("search_products", {"query": "eye mask"})
+        assert client.post("/actions/buy", headers=guest,
+                           json={"session_id": "presenter", "item_id": "p_eyemask"}).is_success
+
+
+def test_presenter_reminder_triggers_for_all_guests_named_mew(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        recipients = []
+        for index, name in enumerate(("Mew", "MEW", "Other")):
+            assert client.post("/visitor", headers=guest, json={"name": name}).is_success
+            token = client.cookies["zippy_guest"]
+            owner = "guest-" + sha256(token.encode()).hexdigest()
+            session = f"phone-{index}"
+            scoped = client.app.state.open_visitor(owner, demo=False)
+            scoped.remind(session, "22:30", "Wear your eye mask")
+            scoped.store.save()
+            recipients.append((token, session))
+            assert client.delete("/visitor", headers=guest).is_success
+
+        body = {"guest_name": "mew", "reminder": "22:30"}
+        assert client.post("/presenter/trigger", json=body).status_code == 403
+        result = client.post("/presenter/trigger", json=body, headers={"X-Presenter-Key": "local-presenter"})
+        assert result.is_success, result.text
+        assert result.json() == {"status": "ok", "guests": 2, "matched_guests": 2, "devices": 0}
+        for index, (token, session) in enumerate(recipients):
+            client.cookies.set("zippy_guest", token)
+            feed = client.get(f"/feed?session_id={session}", headers=guest).json()
+            assert [entry["text"] for entry in feed] == (["Wear your eye mask"] if index < 2 else [])
+            client.cookies.delete("zippy_guest")
+
+
+def test_presenter_agents_read_fresh_mongo_history_and_handle_new_guests(tmp_path):
+    class Catalog:
+        async def persona(self, guest_name, *, food):
+            return None
+
+        async def read(self, key):
+            assert key == "body_data/food_db.json"
+            return {"foods": [{"food_id": "chicken", "menu": "Chicken salad", "role": "salad",
+                               "nutrition": {"calories": 400, "protein_g": 35}}]}
+
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    presenter = {"X-Presenter-Key": "local-presenter"}
+    with demo(tmp_path, database=database, recommendation_data=Catalog()) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Fresh"}).is_success
+        for agent in ("food", "item"):
+            result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": agent}, headers=presenter)
+            assert result.is_success, result.text
+        feed = "/feed?session_id=presenter"
+        entries = client.get(feed, headers=guest).json()
+        assert cards(entries)[0]["dish"] == "Chicken salad"
+        assert any("general sleep accessory" in item.get("text", "") for item in entries)
+
+        token = client.cookies["zippy_guest"]
+        owner = "guest-" + sha256(token.encode()).hexdigest()
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "profile": {"persona_id": "P10", "display_name": "Fresh"},
+            "wearable_daily": [{"date": "2026-11-20", "sleep_hours": 5.5}],
+        }}})
+        result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": "item"}, headers=presenter)
+        assert result.is_success, result.text
+        assert "5.5 hours" in client.get(feed, headers=guest).json()[-2]["text"]
 
 
 def test_push_subscribe_and_presenter_trigger_by_guest_name(tmp_path):

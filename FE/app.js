@@ -847,7 +847,7 @@
       }
       if (!visitor.ready) await service.json('visitor', undefined, 'POST');
       threads = await service.json('sessions');
-      active = threads[0] || newThread();
+      active = threads[0] || { ...newThread(), id: 'presenter', connected: true };
       await loadThread(active);
       try { pendingOrder = JSON.parse(sessionStorage.getItem(pendingOrderKey) || 'null'); } catch { pendingOrder = null; }
       ready = true;

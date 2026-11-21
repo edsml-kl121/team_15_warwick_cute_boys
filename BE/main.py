@@ -13,13 +13,14 @@ from anyio import CancelScope
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from demo import Clock, DEMO_DATE
 from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
 from persona import Persona, apply_to_profile
 from push import WebPush, add_subscription
+from recommendations import BucketRecommendationData, RecommendationAgents, RecommendationUnavailable
 from service import MOMENTS, Zippy
 from storage import DemoHealth, JsonStore, VisitorStores, initialize_mongo
 from telephony import DemoPhone, RealtimeFactory, TwilioPhone, bridge
@@ -41,6 +42,7 @@ class Settings:
         self.live_calls = os.getenv("LIVE_CALLS") == "1"
         self.mongo_url = os.getenv("MONGO_URL")
         self.mongo_database = os.getenv("MONGO_DATABASE") or "zippy"
+        self.recommendation_mongo_url = os.getenv("RECOMMENDATION_MONGO_URL")
         self.secure_cookies = bool(os.getenv("RAILWAY_ENVIRONMENT"))
         self.vapid_public_key = os.getenv("VAPID_PUBLIC_KEY", "")
         self.vapid_private_key = os.getenv("VAPID_PRIVATE_KEY", "")
@@ -126,6 +128,7 @@ class PresenterTrigger(BaseModel):
     guest_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     moment: Moment | None = None
     reminder: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    agent: Literal["food", "item"] | None = None
 
 
 class Onboarding(BaseModel):
@@ -150,7 +153,8 @@ def visitor_id(request, demo):
 
 
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
-               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None):
+               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None,
+               recommendation_data=None):
     settings = settings or Settings()
     push_sender = push or (WebPush(settings.vapid_public_key, settings.vapid_private_key, settings.vapid_subject)
                            if settings.vapid_public_key and settings.vapid_private_key else None)
@@ -180,6 +184,12 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                                       os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
                                       os.getenv("FOOD_SCAN_MODEL") or "gpt-4.1-mini")
         assistant = coach or (AgentsCoach(prompts) if settings.use_ai else None)
+        data = recommendation_data
+        if data is None and (bucket := os.getenv("RECOMMENDATION_BUCKET") or os.getenv("S3_BUCKET")):
+            client = getattr(photo_reader, "client", None) if bucket == os.getenv("S3_BUCKET") else None
+            data = BucketRecommendationData(client, bucket) if client else BucketRecommendationData.connect(
+                bucket, os.getenv("AWS_REGION"), os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
+            )
         demo_date = local_clock.now().date().isoformat()
         mongo_client = None
         db = database
@@ -195,6 +205,18 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                 if mongo_client:
                     mongo_client.close()
                 raise
+        recommendation_client = None
+        recommendation_db = None
+        if settings.recommendation_mongo_url:
+            from pymongo import MongoClient
+
+            recommendation_client = MongoClient(settings.recommendation_mongo_url,
+                                                serverSelectionTimeoutMS=5000, timeoutMS=5000)
+            recommendation_db = recommendation_client[settings.mongo_database]
+        app.state.recommendations = RecommendationAgents(
+            data, prompts, (os.getenv("RECOMMENDATION_MODEL") or "gpt-4.1-mini") if settings.use_ai else None,
+            database=recommendation_db,
+        )
         stores = VisitorStores(settings.directory, demo_date, db)
         visitors = {}
 
@@ -252,6 +274,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            if recommendation_client:
+                recommendation_client.close()
             if mongo_client:
                 mongo_client.close()
 
@@ -377,6 +401,21 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         result = zippy.food_log(date.isoformat() if date else zippy.state["date"])
         result["meals"] = [public_meal(meal, zippy.photos) for meal in result["meals"]]
         return result
+
+    @app.get("/food-log/catalog-image", dependencies=protected)
+    async def catalog_image(request: Request, food_id: str = Query(default="", max_length=128),
+                            dish: str = Query(default="", max_length=240)):
+        # Image elements send the visitor cookie but no app-specific demo header.
+        if not any(request.app.state.open_visitor(visitor_id(request, demo), demo=demo) for demo in (False, True)):
+            raise HTTPException(401, "Start a guest session first.")
+        data = request.app.state.recommendations.data
+        try:
+            url = await data.catalog_image_url(food_id, dish) if data and (food_id or dish) else None
+        except RecommendationUnavailable as error:
+            raise HTTPException(503, str(error)) from None
+        if not url:
+            raise HTTPException(404, "Catalog image not found.")
+        return RedirectResponse(url, headers={"Cache-Control": "no-store"})
 
     def public_meal(meal, photos):
         result = meal.copy()
@@ -535,19 +574,40 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     @app.post("/presenter/trigger", dependencies=protected)
     async def presenter_trigger(request: Request, body: PresenterTrigger,
                                 x_presenter_key: str = Header(default="")):
-        """Fire a moment for a guest found by display name, from any browser holding the presenter key."""
+        """Trigger the requested action for all guests matching the display name."""
         if not settings.presenter_key or not secrets.compare_digest(x_presenter_key.encode(), settings.presenter_key.encode()):
             raise HTTPException(403, "Enter the presenter key.")
+        if sum(value is not None for value in (body.agent, body.moment, body.reminder)) != 1:
+            raise HTTPException(400, "Pass one agent, moment or reminder.")
         owners = request.app.state.find_guests(body.guest_name)
         if not owners:
             raise HTTPException(404, f"No guest named {body.guest_name}.")
-        if len(owners) > 1:
-            raise HTTPException(409, f"{len(owners)} guests are named {body.guest_name}. Use a unique name.")
-        zippy = request.app.state.open_visitor(owners[0], demo=owners[0].startswith("demo-"))
-        sessions = zippy.state["sessions"]
-        session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
-        await fire(zippy, session_id, body.moment, body.reminder)
-        return {"status": "ok", "session_id": session_id, "devices": len(zippy.state.get("push_subscriptions", []))}
+
+        async def trigger_guest(owner):
+            zippy = request.app.state.open_visitor(owner, demo=owner.startswith("demo-"))
+            if zippy is None:
+                raise HTTPException(404, f"No guest named {body.guest_name}.")
+            sessions = zippy.state["sessions"]
+            session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
+            if body.agent:
+                try:
+                    await zippy.recommend(request.app.state.recommendations, body.agent, session_id)
+                except RecommendationUnavailable as error:
+                    raise HTTPException(503, str(error)) from None
+            else:
+                await fire(zippy, session_id, body.moment, body.reminder)
+            return session_id, len(zippy.state.get("push_subscriptions", []))
+
+        results = await asyncio.gather(*(trigger_guest(owner) for owner in owners), return_exceptions=True)
+        succeeded = [result for result in results if isinstance(result, tuple)]
+        if not succeeded:
+            raise results[0]
+        response = {"status": "ok" if len(succeeded) == len(owners) else "partial",
+                    "guests": len(succeeded), "matched_guests": len(owners),
+                    "devices": sum(count for _, count in succeeded)}
+        if len(owners) == 1:
+            response["session_id"] = succeeded[0][0]
+        return response
 
     @app.get("/push/key", dependencies=protected)
     async def push_key():

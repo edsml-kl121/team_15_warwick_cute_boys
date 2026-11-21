@@ -3,7 +3,8 @@
 }
 
 http://:{$PORT:3000} {
-	@zippy_api path /api/visitor /api/sessions /api/sessions/* /api/chat /api/feed /api/profile /api/persona /api/today /api/food-log /api/food-log/photo /api/actions/buy /api/actions/pay /api/actions/cancel /api/shopee-orders/* /api/bookings/* /api/demo/trigger /api/demo/reset /api/presenter/* /api/push/*
+	rewrite /presentor.html /presenter.html
+	@zippy_api path /api/visitor /api/sessions /api/sessions/* /api/chat /api/feed /api/profile /api/persona /api/today /api/food-log /api/food-log/photo /api/food-log/catalog-image /api/actions/buy /api/actions/pay /api/actions/cancel /api/shopee-orders/* /api/bookings/* /api/demo/trigger /api/demo/reset /api/presenter/* /api/push/*
 	handle @zippy_api {
 		header >Cache-Control "no-store"
 		uri strip_prefix /api

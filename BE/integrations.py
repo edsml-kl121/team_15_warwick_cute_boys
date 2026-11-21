@@ -27,6 +27,7 @@ class Prompts:
         "proactive.daily_summary.intro": set(),
         "proactive.weekly_recap.notification": {"headline"},
         "proactive.weekly_recap.intro": {"days", "name"},
+        "recommendation.food": set(), "recommendation.item": set(),
         "phone.rules": {"language"}, "phone.book_table": {"restaurant_name", "party_size", "time", "name"},
     }
 

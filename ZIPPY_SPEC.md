@@ -152,7 +152,7 @@ Frontend ── approve_url ──► ShopeePay simulator PIN page
 | `GET /bookings/{id}` | Frontend checks booking status |
 | `POST /proactive {moment}` | Cron or demo triggers `morning_sleep`, `dinner_tip`, `daily_summary` or `weekly_recap` |
 | `POST /demo/reset`, `POST /demo/trigger` | Presenter resets or triggers a moment or reminder |
-| `POST /presenter/trigger` | Presenter dashboard fires a moment for a guest by display name, authorized by `X-Presenter-Key` |
+| `POST /presenter/trigger` | Presenter dashboard fires a moment, reminder or agent for all guests matching a display name, authorized by `X-Presenter-Key` |
 | `GET /push/key`, `POST /push/subscribe` | Frontend reads the VAPID public key and saves the browser's push subscription. Notifications are pushed to saved devices. |
 | `POST /call-status` | Twilio callback with `CallStatus`, `CallDuration` and `AnsweredBy` |
 | `WS /media-stream` | Twilio streams call audio |
@@ -218,6 +218,7 @@ Keep prompts in one backend YAML file and restart after edits. Validate required
 - **`coach.shared`**. Be brief and warm. Use one chart, one reason and one fix. Get numbers from tools and use `show_*` for choices. Respect Ploy's goals, tastes and budget. Explain that Ploy approves payment. Use Food listings to suggest places, offer a walk when Ploy is inactive, and book by phone with permission. After a failed call, suggest the next closest similar place. Reply in the language of her latest message.
 - **`coach.chat_style`**. Plain text in one or two short paragraphs.
 - **`proactive.morning_sleep`, `proactive.dinner_tip`, `proactive.daily_summary`**. Define data to inspect, cards, a one-line notification and the first chat message.
+- **`recommendation.food` and `recommendation.item`**. Choose from a context-specific shortlist. The backend looks up Shopee listings after the choice and sends the resulting cards to the guest.
 - **`phone.rules`**. Speak first in `{language}` and switch if requested. Keep turns short and read the time and party size back. Use confirmed details, keep the call focused on the reservation, say goodbye and call `end_call`.
 - **`phone.book_table`**. Use `{restaurant_name}`, `{party_size}`, `{time}` and `{name}`. Confirm the time, capture the exact words and report the outcome once.
 

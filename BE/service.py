@@ -24,6 +24,7 @@ class Zippy:
         self.tasks = set()
         self.chat_locks = defaultdict(asyncio.Lock)
         self.mutation = asyncio.Lock()
+        self.recommendation_lock = asyncio.Lock()
 
     @property
     def state(self):
@@ -70,6 +71,26 @@ class Zippy:
                 self.state["push_subscriptions"] = [
                     item for item in self.state.get("push_subscriptions", []) if item["endpoint"] not in gone]
                 self.store.save()
+
+    async def recommend(self, agents, kind, session_id):
+        if self.recommendation_lock.locked():
+            raise ValueError("A recommendation is already running for this guest.")
+        async with self.recommendation_lock:
+            snapshot = self.state
+            items, products = await agents.run(kind, self)
+            async with self.mutation:
+                if snapshot is not self.state:
+                    raise ValueError("The guest session was reset. Trigger the recommendation again.")
+                if products:
+                    session = self.session(session_id)
+                    existing = {item["item_id"]: item for item in session["products"]}
+                    existing.update((item["item_id"], item) for item in products)
+                    session["products"] = list(existing.values())
+                title, body = (
+                    ("Food recommendation", "I found a meal idea for you.")
+                    if kind == "food" else ("Item recommendation", "I found a Shopee Mall option for you.")
+                )
+                self.emit(session_id, {"text": body, "notify": {"title": title, "body": body}}, *items)
 
     def sleep_card(self):
         sleep = self.health.today(self.state, self.state["date"])["sleep"]

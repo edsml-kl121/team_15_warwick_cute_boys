@@ -10,6 +10,8 @@ Use the camera button in chat or on the Food log page to upload a meal photo (JP
 
 Read [CHAT_API.md](CHAT_API.md) for the FastAPI connection, checkout, optional transcription, and original demo values. The static preview opens with an empty conversation. Sending requires the API.
 
+Open `/presenter.html` or `/presentor.html` on the Caddy-served app. Enter the phone's guest display name and the presenter key, then click **Trigger** beside **Recommend food** or **Recommend an item**. The recommendation appears in the guest’s chat.
+
 ## Verification
 
 From the repository root, run `node --test FE/tests/*.cjs`, `node --check` on `FE/app.js`, `FE/markdown.js`, `FE/pages.js`, `FE/push.js`, `FE/presenter.js`, `FE/sw.js` and `FE/voice.js`, and `docker compose config --quiet`. In the browser, open and close the keyboard and history drawer, open each page from the menu, trigger each presenter flow, then verify message sending and how the app handles missing data. On a microphone-enabled browser, verify that dictation updates during speech and stops when you tap the waveform.

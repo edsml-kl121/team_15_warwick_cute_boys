@@ -43,6 +43,16 @@ test('empty product results have no cards and a price comes from the backend', (
   assert.equal(card.value, '321 THB');
 });
 
+test('meal suggestions request fresh catalog images by ID or saved dish name', () => {
+  const service = loadService();
+  const meal = { kind: 'meal', dish: 'Chicken & rice', protein_g: 35, kcal: 400, why: 'Fits your protein goal.' };
+  const [current] = service.cards({ ...meal, food_id: 'chicken-rice' });
+  const [saved] = service.cards(meal);
+  assert.equal(current.imageUrl, 'https://zippy.example/api/food-log/catalog-image?food_id=chicken-rice');
+  assert.equal(saved.imageUrl, 'https://zippy.example/api/food-log/catalog-image?dish=Chicken+%26+rice');
+  assert.equal(current.description, meal.why);
+});
+
 test('photo uploads multipart data and returns the saved estimate after progress', async () => {
   const file = new File(['photo'], 'meal.jpg', { type: 'image/jpeg' });
   const service = loadService(async (url, options) => {
