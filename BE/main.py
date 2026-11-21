@@ -140,6 +140,7 @@ class PresenterTrigger(BaseModel):
     moment: Moment | None = None
     reminder: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
     agent: Literal["food", "item"] | None = None
+    exercise_review: Literal[True] | None = None
 
 
 class Onboarding(BaseModel):
@@ -629,8 +630,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
         """Trigger the requested action for all guests matching the display name."""
         if not settings.presenter_key or not secrets.compare_digest(x_presenter_key.encode(), settings.presenter_key.encode()):
             raise HTTPException(403, "Enter the presenter key.")
-        if sum(value is not None for value in (body.agent, body.moment, body.reminder)) != 1:
-            raise HTTPException(400, "Pass one agent, moment or reminder.")
+        if sum(value is not None for value in (body.agent, body.moment, body.reminder, body.exercise_review)) != 1:
+            raise HTTPException(400, "Pass one agent, moment, reminder or exercise review.")
         owners = request.app.state.find_guests(body.guest_name)
         if not owners:
             raise HTTPException(404, f"No guest named {body.guest_name}.")
@@ -646,6 +647,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                     await zippy.recommend(request.app.state.recommendations, body.agent, session_id)
                 except RecommendationUnavailable as error:
                     raise HTTPException(503, str(error)) from None
+            elif body.exercise_review:
+                await zippy.propose_exercise(session_id)
             else:
                 await fire(zippy, session_id, body.moment, body.reminder)
             return session_id, len(zippy.state.get("push_subscriptions", []))

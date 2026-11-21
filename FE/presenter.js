@@ -8,6 +8,8 @@
       needs: 'Suggests a meal from the guest’s history. Guests can ask for nearby places in chat.' },
     { scene: 'Recommendation agents', name: 'Recommend an item', body: { agent: 'item' },
       needs: 'Uses recent sleep or activity to find a relevant product on Shopee Mall.' },
+    { scene: 'Exercise log', name: 'Ask guest to review exercise', body: { exercise_review: true },
+      needs: 'Asks about yesterday’s racket sport. The guest can log it or skip.' },
     { scene: 'Scene 1 · 07:02', name: 'Morning sleep insight', body: { moment: 'morning_sleep' },
       preview: ['Sleep insight', 'You slept 5 h 10 m, your 3rd short night this week. Light woke you up at 5:40. Want help?'] },
     { scene: 'Scene 1 · 22:30', name: 'Eye mask reminder', body: { reminder: '22:30' },
@@ -78,7 +80,7 @@
       return result.devices ? `sent to ${guestName} and ${result.devices} device${result.devices > 1 ? 's' : ''}.`
         : `sent to ${guestName}'s chat. Their phone hasn't turned notifications on yet.`;
     }
-    if (body.agent) throw new Error('Enter a guest name and presenter key to run this agent.');
+    if (body.agent || body.exercise_review) throw new Error('Enter a guest name and presenter key for this trigger.');
     await service.json('demo/trigger', { session_id: session(), ...body });
     return 'sent.';
   }

@@ -75,6 +75,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .result-card p { margin: 0; }
 .result-card .shp { align-self: flex-start; }
 .result-image { width: calc(100% + 28px); max-height: 180px; object-fit: cover; margin: -14px -14px 0; }
+.result-map { display: block; width: 100%; height: 146px; border: 0; border-radius: 12px; background: #eeece5; }
 .result-rows { display: grid; gap: 7px; margin: 0; overflow-wrap: anywhere; }
 .result-rows .row { gap: 10px; }
 .result-rows dd { margin: 0; text-align: right; font-weight: 700; }

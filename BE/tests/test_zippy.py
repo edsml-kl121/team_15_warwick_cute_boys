@@ -1285,6 +1285,80 @@ def test_presenter_agents_read_fresh_mongo_history_and_handle_new_guests(tmp_pat
         assert client.get(path, headers=guest).json()["wearable_daily"] == []
 
 
+def test_today_reads_guest_activity_and_workout_calories_from_mongo(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    with demo(tmp_path, database=database) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Exercise history"}).is_success
+        assert client.get("/today", headers=guest).json()["activity_history"] == []
+        owner = "guest-" + sha256(client.cookies["zippy_guest"].encode()).hexdigest()
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "wearable_daily": [
+                {"date": "2026-11-20", "steps": 4210, "active_minutes": 25, "total_energy_kcal": 1975},
+                {"date": "2026-11-18", "steps": 1000},
+                {"date": "2026-11-22", "active_calories_kcal": 800},
+            ],
+            "workouts": [
+                {"start_time": "2026-11-20T09:00:00+07:00", "workout_type": "interval_run",
+                 "duration_minutes": 24, "energy_kcal": 225, "location": "Club",
+                 "calories_estimated": True, "source": "imported_sample"},
+            ],
+        }}})
+        history = client.get("/today", headers=guest).json()["activity_history"]
+        assert history == [
+            {"date": "2026-11-20", "steps": 4210, "active_minutes": 25, "calories_burned_kcal": 1975,
+             "workouts": [{"name": "interval run", "minutes": 24, "calories_burned_kcal": 225,
+                           "location": "Club", "calories_estimated": True, "source": "imported_sample"}]},
+            {"date": "2026-11-18", "steps": 1000, "workouts": []},
+        ]
+
+
+def test_presenter_exercise_review_uses_saved_location_and_logs_only_on_confirmation(tmp_path):
+    database = mongomock.MongoClient().zippy
+    guest = {"X-Zippy-Demo": "0"}
+    presenter = {"X-Presenter-Key": "local-presenter"}
+    body = {"guest_name": "Exercise guest", "exercise_review": True}
+    with demo(tmp_path, database=database) as (client, _):
+        assert client.post("/visitor", headers=guest, json={"name": "Exercise guest"}).is_success
+        feed = "/feed?session_id=presenter"
+        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
+        location = client.get(feed, headers=guest).json()[-1]["card"]
+        assert location["kind"] == "exercise_location"
+        assert location["venue"] == "71 Sports Club"
+        assert location["map_embed_url"].startswith("https://www.openstreetmap.org/export/embed.html?")
+        assert "marker=" in location["map_embed_url"]
+        owner = "guest-" + sha256(client.cookies["zippy_guest"].encode()).hexdigest()
+        workout = {"id": "sample-activity", "date": "2026-11-20", "name": "Racket sport",
+                   "location": "Near West Courts", "duration_minutes": 120, "calories_burned_kcal": 600,
+                   "calories_estimated": True, "source": "imported_sample"}
+        database.guests.update_one({"_id": owner}, {"$set": {"persona": {
+            "profile": {"persona_id": "exercise-guest", "display_name": "Exercise guest"}, "workouts": [workout],
+        }}})
+        assert client.post("/presenter/trigger", json=body).status_code == 403
+        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
+        review = client.get(feed, headers=guest).json()[-1]
+        assert "Near West Courts" in review["text"] and "600 kcal" in review["text"]
+        assert not review.get("card")
+        assert review["quick_replies"] == ["Log this", "Skip"]
+        assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [workout]
+
+        def reply(message):
+            response = client.post("/chat", headers=guest, json={"session_id": "presenter", "message": message})
+            assert response.is_success
+            return response.text
+
+        assert "Skipped" in reply(review["quick_reply_messages"]["Skip"])
+        assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [workout]
+        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
+        assert "Logged" in reply(review["quick_reply_messages"]["Log this"])
+        assert "no pending exercise review" in reply(review["quick_reply_messages"]["Log this"])
+        assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [
+            {**workout, "source": "user_confirmed"},
+        ]
+        [entry] = client.get("/today", headers=guest).json()["activity_history"]
+        assert entry["workouts"][0]["location"] == "Near West Courts"
+
+
 def test_pending_tam_import_attaches_to_each_case_insensitive_guest(tmp_path):
     database = mongomock.MongoClient().zippy
     database.guest_health_imports.insert_one({

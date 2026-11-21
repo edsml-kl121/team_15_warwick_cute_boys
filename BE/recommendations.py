@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel
 
-from persona import persona_meals
+from persona import history_date, persona_meals
 from storage import read_food_catalog, read_guest_recommendation_data
 
 
@@ -359,12 +359,8 @@ class RecommendationAgents:
         for field in ("wearable_daily", "workouts", "weights", "body_composition_scans"):
             rows = []
             for row in persona.get(field, []):
-                raw_date = row.get("date") or row.get("timestamp") or row.get("start_time")
-                try:
-                    recorded = date.fromisoformat(str(raw_date)[:10])
-                except ValueError:
-                    continue
-                if start <= recorded <= end:
+                recorded = history_date(row)
+                if recorded is not None and start <= recorded <= end:
                     rows.append(row)
             history[field] = rows
         return history

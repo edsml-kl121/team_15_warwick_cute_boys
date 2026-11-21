@@ -85,6 +85,8 @@ MongoDB holds the meal and its image key when an image is stored. The Food Log r
 
 The Today, Food log, Profile and Connect apps pages read `GET /today`, `GET /food-log?date=YYYY-MM-DD` and `GET /profile`. Connect apps writes the whole profile back with `PUT /profile`, adding or updating one `{app, connected, shares}` entry. The app catalog (descriptions, logos and what each app can share) lives in `pages.js`. Connection state comes only from the backend.
 
+`GET /today` also returns `activity_history` for up to seven dates, newest first. Each day can contain steps, active minutes, recorded daily or active calories, and individual workouts with recorded duration and calories. Missing measurements are omitted or null. Workout calories are shown per session, separately from daily calories.
+
 Feed items may carry `notify: {title, body}`, which shows the simulated lock screen, and `header_status` (`online`, `calling`, `in_call`), which updates the chat header.
 
 Recommendation feed items can use `food_log`, `profile`, `health_data`, and `today` in `references` to link to the guest’s data. A meal recommendation offers **Recommend places nearby** and **Skip**. The nearby search uses the same location settings as chat.
@@ -108,6 +110,8 @@ Profile › Health data reads `GET /persona` (404 until imported) and imports a 
 The Caddy proxy adds the server token to demo routes. Anyone who can reach the frontend can trigger or reset the demo. Restrict the frontend URL or remove the demo routes from the Caddy matcher outside rehearsals.
 
 The presenter also exposes **Recommend food** and **Recommend an item** at `/presenter.html` and the Caddy alias `/presentor.html`. These buttons require a guest name and `X-Presenter-Key` and post `{guest_name, agent: "food" | "item"}` to `/presenter/trigger`. Results reuse the meal, places and product comparison cards.
+
+**Ask guest to review exercise** sends `{guest_name, exercise_review: true}` to the same endpoint. The guest sees **Log this** and **Skip**. The feed’s optional `quick_reply_messages` maps those labels to date-scoped chat messages. Confirming saves the workout once. The review can use a location from the guest’s saved workout history and labels the fixed scenario location when no personal location is available.
 
 Recommendation cards include a short reason grounded in the guest’s available logs, goals or wearable data. Meal cards use `GET /food-log/catalog-image?food_id=…` to fetch a fresh signed image redirect for the private bucket. Older cards can look up the catalog dish by name.
 

@@ -2,6 +2,7 @@ import os
 from copy import deepcopy
 
 from demo import PROFILE
+from persona import history_date
 
 
 DATASET = "ploy-v1"
@@ -64,6 +65,36 @@ def read_guest_recommendation_data(database, owner, day):
 def read_food_catalog(database):
     catalog = database.food_catalog.find_one({"_id": "food_db"}, {"_id": 0, "foods": 1})
     return catalog.get("foods", []) if catalog else []
+
+
+def confirm_exercise(database, owner, workout):
+    """Confirm once, retaining the surrounding MongoDB health history."""
+    for _ in range(3):
+        guest = database.guests.find_one({"_id": owner}, {"profile.name": 1, "persona": 1})
+        if guest is None:
+            raise LookupError("Guest profile not found.")
+        previous = guest.get("persona")
+        persona = deepcopy(previous) if previous else {
+            "profile": {"persona_id": owner[:40], "display_name": guest["profile"]["name"]},
+        }
+        workouts = persona.setdefault("workouts", [])
+        for index, entry in enumerate(workouts):
+            day = history_date(entry)
+            if entry.get("id") == workout["id"] or (
+                day is not None and day.isoformat() == workout["date"] and
+                str(entry.get("name", "")).casefold() == workout["name"].casefold() and
+                str(entry.get("location", "")).strip().casefold() == workout["location"].strip().casefold()
+            ):
+                if entry.get("source") != "imported_sample":
+                    return False
+                workouts[index] = {**entry, **workout, "source": "user_confirmed"}
+                break
+        else:
+            workouts.append({**workout, "source": "user_confirmed"})
+        match = {"_id": owner, "persona": previous if "persona" in guest else {"$exists": False}}
+        if database.guests.update_one(match, {"$set": {"persona": persona}}).matched_count:
+            return True
+    raise ValueError("Your health history changed during the review. Try again.")
 
 
 class MongoStore:

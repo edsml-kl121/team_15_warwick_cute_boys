@@ -8,9 +8,9 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from demo import NUTRIENTS, after_minutes
-from persona import lighter_orders, persona_meals, pick_meal, plan_day, weekly_recap
+from persona import activity_history, history_date, lighter_orders, persona_meals, pick_meal, plan_day, weekly_recap
 from recommendations import RecommendationUnavailable, food_candidates, match_catalog_foods, number
-from storage import read_food_catalog, read_guest_recommendation_data
+from storage import confirm_exercise, read_food_catalog, read_guest_recommendation_data
 
 
 MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19:40", "weekly_recap": "20:30"}
@@ -30,6 +30,22 @@ NUTRITION_CONTEXT = re.compile(
     r"\b(my|today|yesterday|logged|goal|remaining|left|burned|suggest|recommend|under|at least)\b",
 )
 CATALOG_RECHECK = re.compile(r"\b(?:whole|entire|full) (?:food )?catalog\b")
+EXERCISE_REPLY = re.compile(r"(log this|skip) exercise for (\d{4}-\d{2}-\d{2})")
+EXERCISE_VENUE = "71 Sports Club"
+EXERCISE_VENUE_CARD = {
+    "kind": "exercise_location",
+    "venue": EXERCISE_VENUE,
+    "address": "1035/12 Soi Pridi Banomyong 41, Sukhumvit 71, Bangkok",
+    "map_embed_url": "https://www.openstreetmap.org/export/embed.html?" + urlencode({
+        "bbox": "100.59394,13.73228,100.59894,13.73548",
+        "layer": "mapnik",
+        "marker": "13.73388,100.59644",
+    }),
+    "maps_url": "https://www.google.com/maps/search/?" + urlencode({
+        "api": 1,
+        "query": "71 Sports Club, 1035/12 Soi Pridi Banomyong 41, Bangkok",
+    }),
+}
 CATALOG_NUTRIENTS = {
     "kcal": (r"\b(calories?|kcal)\b", "kcal"),
     "protein_g": (r"\bprotein\b", "g protein"),
@@ -128,6 +144,41 @@ class Zippy:
     def health_persona(self):
         return self.personal_data(self.data_date()).get("persona")
 
+    async def propose_exercise(self, session_id):
+        """Post a review without writing a workout to the guest's history."""
+        async with self.mutation:
+            yesterday = date.fromisoformat(self.data_date()) - timedelta(days=1)
+            persona = self.health_persona() or {}
+            saved = next((row for row in persona.get("workouts", [])
+                          if history_date(row) == yesterday
+                          and str(row.get("name", "")).casefold() == "racket sport"
+                          and isinstance(row.get("location"), str) and row["location"].strip()), {})
+            day = yesterday.isoformat()
+            estimated_kcal = number(saved.get("calories_burned_kcal"))
+            duration = number(saved.get("duration_minutes"))
+            workout = {
+                "id": saved.get("id") or f"exercise-review-racket-{day}", "date": day, "name": "Racket sport",
+                "location": saved.get("location") or f"Near {EXERCISE_VENUE}", "duration_minutes": duration or 120,
+                "calories_burned_kcal": estimated_kcal if estimated_kcal is not None else 600,
+                "calories_estimated": estimated_kcal is None or bool(saved.get("calories_estimated", True)),
+            }
+            self.session(session_id)["exercise_review"] = workout
+            context = (f"Your workout history lists {workout['location']}."
+                       if saved and saved.get("source") != "imported_sample"
+                       else f"This check-in uses the suggested location {workout['location']}.")
+            qualifier = "estimated " if workout["calories_estimated"] else ""
+            review = {
+                "text": (f"{context} Did you play a racket sport yesterday "
+                         f"for about {workout['duration_minutes']:g} minutes? "
+                         f"The {qualifier}calorie burn is {workout['calories_burned_kcal']:g} kcal."),
+                "quick_replies": ["Log this", "Skip"],
+                "quick_reply_messages": {"Log this": f"Log this exercise for {day}", "Skip": f"Skip exercise for {day}"},
+                "notify": {"title": "Review your exercise", "body": "Did you play a racket sport yesterday?"},
+            }
+            if re.fullmatch(r"(?:Near )?71 Sports? Club", workout["location"].strip(), re.IGNORECASE):
+                review["card"] = EXERCISE_VENUE_CARD
+            self.emit(session_id, review)
+
     def wellness(self, day, persona):
         if self.health:
             return self.health.today(self.state, day)
@@ -171,6 +222,7 @@ class Zippy:
             activity = {**activity, "steps_goal_pct": round(100 * steps / goals["steps"])}
         meals = stored.get("meals", []) + persona_meals(stored.get("persona"), day)
         return {"date": day, "now": self.now().isoformat(), **data, "activity": activity, "goals": goals,
+                "activity_history": activity_history(stored.get("persona"), date.fromisoformat(day)),
                 "totals": {key: sum(meal[key] for meal in meals) for key in NUTRIENTS},
                 "upcoming": ([{"at": "18:15", "message": "Dinner idea"}] if self.store.demo else []) + [
                     {"at": order["arrival_date"], "message": "Shopee Mall eye mask delivery"}
@@ -448,12 +500,29 @@ class Zippy:
             location = None
         answer = normalize(message)
         pending = session["pending"]
-
         def answers(option):
             """Scripted demo replies only answer the button just offered, unless there is no AI to answer."""
             return not self.coach or option in offered
 
-        if answer == "not now" and answers("not now"):
+        review = session.get("exercise_review")
+        exercise_reply = EXERCISE_REPLY.fullmatch(answer)
+        if exercise_reply or answer == "log this" or (review and answer == "skip" and not session.get("recommended_meal")):
+            if not review or (exercise_reply and exercise_reply[2] != review["date"]):
+                yield {"type": "delta", "text": "There’s no pending exercise review for that date."}
+                return
+            log_workout = answer == "log this" or (exercise_reply and exercise_reply[1] == "log this")
+            async with self.mutation:
+                if session.get("exercise_review") is not review:
+                    text = "There’s no pending exercise review for that date."
+                elif log_workout:
+                    recorded = confirm_exercise(self.store.database, self.store.owner, review)
+                    text = "Logged in Today → Recent activity." if recorded else "That exercise is already in your activity history."
+                    session.pop("exercise_review")
+                else:
+                    text = "Skipped the exercise review."
+                    session.pop("exercise_review")
+            yield {"type": "delta", "text": text}
+        elif answer == "not now" and answers("not now"):
             session["pending"] = None
             yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}
         elif answer == "show me options" and answers("show me options"):

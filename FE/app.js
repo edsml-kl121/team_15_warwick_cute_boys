@@ -371,6 +371,15 @@
     card.append(cardHeader(data));
     if (typeof data.value === 'string') card.append(node('p', 'hero', data.value));
     if (typeof data.description === 'string') card.append(node('p', 'lbl', data.description));
+    const mapUrl = data.mapEmbedUrl && safeURL(data.mapEmbedUrl);
+    if (mapUrl?.origin === 'https://www.openstreetmap.org' && mapUrl.pathname === '/export/embed.html') {
+      const map = node('iframe', 'result-map');
+      map.title = `Map of ${data.title}`;
+      map.loading = 'lazy';
+      map.referrerPolicy = 'no-referrer';
+      map.src = mapUrl.href;
+      card.append(map);
+    }
     if (data.timeline?.length) card.append(...sleepTimeline(data.timeline));
     for (const item of data.meters || []) card.append(meter(item));
     if (data.items?.length) {
@@ -509,6 +518,7 @@
           const reply = node('button', 'chip', text);
           reply.type = 'button';
           reply.dataset.action = 'quick-reply';
+          if (message.replyMessages?.[text]) reply.dataset.reply = message.replyMessages[text];
           reply.disabled = Boolean(active.pending);
           replies.append(reply);
         }
@@ -852,6 +862,7 @@
     if (item.text || cards.length || item.quick_replies?.length) {
       thread.messages.push({
         role: 'assistant', text: item.text, cards, replies: item.quick_replies, references: item.references,
+        replyMessages: item.quick_reply_messages,
       });
     }
   }
@@ -971,7 +982,7 @@
     'dock-back': () => setMode('idle', true),
     'voice-cancel': () => setMode('idle', true),
     voice: openVoice,
-    'quick-reply': control => sendMessage(control.textContent.trim()),
+    'quick-reply': control => sendMessage(control.dataset.reply || control.textContent.trim()),
     attach: () => {
       if (mode === 'voice') setMode('idle');
       openPhotoPicker();

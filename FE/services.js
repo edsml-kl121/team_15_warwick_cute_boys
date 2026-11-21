@@ -2,7 +2,7 @@
   const base = document.querySelector('meta[name="zippy-api"]')?.content;
   const transcription = document.querySelector('meta[name="zippy-transcribe"]')?.content;
   const page = new URL(location.href);
-  const demo = page.searchParams.get('demo') === 'ploy' || /\/present[eo]r\.html$/.test(page.pathname);
+  const demo = page.searchParams.get('demo') === 'ploy' || /\/present(?:[eo]r|s?ation)\.html$/.test(page.pathname);
 
   async function send(url, body, method = body == null ? 'GET' : 'POST', extraHeaders = {}) {
     if (location.protocol === 'file:' && new URL(url, location.href).protocol === 'file:') {
@@ -179,6 +179,9 @@
       case 'walk_route':
         return [{ title: 'Walking route', icon: 'directions_walk', value: duration(data.minutes),
           rows: [row('Leave by', data.leave_by)], link: data.maps_url, linkLabel: 'Open walking route' }];
+      case 'exercise_location':
+        return [{ title: data.venue, icon: 'place', description: data.address,
+          mapEmbedUrl: data.map_embed_url, link: data.maps_url, linkLabel: 'Open in Google Maps' }];
       case 'daily_summary': {
         const goals = (data.goals || []).filter(goal => Number.isFinite(goal.value) && Number.isFinite(goal.goal) && GOAL_LABELS[goal.key]);
         const met = goals.filter(goal => goal.met).length;

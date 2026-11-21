@@ -121,6 +121,47 @@
     }
 
     // Today ----------------------------------------------------------------
+    function recentActivity(days) {
+      const measurements = [
+        ['steps', value => `${fmt(value)} steps`],
+        ['active_minutes', value => `${fmt(value)} active min`],
+        ['calories_burned_kcal', value => `${fmt(value)} kcal burned`],
+        ['active_calories_kcal', value => `${fmt(value)} active kcal`],
+      ];
+      const hasWorkouts = days.some(day => day.workouts.length);
+      const hasCalorieBurn = days.some(day => Number.isFinite(day.calories_burned_kcal)
+        || Number.isFinite(day.active_calories_kcal)
+        || day.workouts.some(workout => Number.isFinite(workout.calories_burned_kcal)));
+      const missing = [
+        !hasWorkouts && 'No workouts recorded.',
+        !hasCalorieBurn && 'No calorie burn recorded.',
+      ].filter(Boolean);
+      return [
+        h('h2', { class: 'sec', text: 'Recent activity' }),
+        h('div', { class: 'card list-card' }, days.length
+          ? days.map(day => {
+            const details = measurements.filter(([key]) => Number.isFinite(day[key]))
+              .map(([key, label]) => label(day[key]));
+            if (day.source === 'imported_sample') details.push('Imported sample');
+            return h('div', { class: 'gr' }, h('div', { class: 'meal-text' },
+              h('b', { text: dayLabel(day.date, { weekday: 'short', day: 'numeric', month: 'short' }) }),
+              details.length > 0 && h('span', { class: 'mut small', text: details.join(' · ') }),
+              day.workouts.map(workout => {
+                const details = [workout.name];
+                if (workout.location) details.push(workout.location);
+                if (Number.isFinite(workout.minutes)) details.push(duration(workout.minutes));
+                if (Number.isFinite(workout.calories_burned_kcal)) {
+                  details.push(`${fmt(workout.calories_burned_kcal)} kcal burned${workout.calories_estimated ? ' (estimate)' : ''}`);
+                }
+                if (workout.source === 'imported_sample') details.push('Imported sample');
+                return h('span', { class: 'mut small', text: details.join(' · ') });
+              })));
+          })
+          : h('p', { class: 'mut empty-row', text: 'No activity recorded yet.' }),
+        days.length > 0 && missing.length > 0 && h('p', { class: 'mut small empty-row', text: missing.join(' ') })),
+      ];
+    }
+
     async function today() {
       const data = await service.json('today');
       const { sleep, recovery, activity, goals, totals } = data;
@@ -164,6 +205,7 @@
               h('div', { class: 'split' }, h('b', { text: name }), h('span', { class: 'num' }, `${value} `, h('span', { class: 'mut', text: of }))),
               bar(width), h('span', { class: 'mut small', text: sub }))),
             h('a', { class: 'card-link', href: '#food' }, 'See food log', icon('chevron_right', 'font-size:18px'))),
+          recentActivity(data.activity_history || []),
           h('span', { class: 'sec', text: 'Zippy is on it' }),
           h('div', { class: 'card list-card' }, upcoming.length ? upcoming : h('p', { class: 'mut empty-row', text: 'Nothing scheduled yet.' }))),
         askBar('Ask Zippy', 'mic', onVoice, 'Talk to Zippy'),

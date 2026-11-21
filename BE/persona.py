@@ -4,12 +4,72 @@ The upload is stored as-is, folded into the visitor's profile goals, merged into
 and summarised for the coach so recommendations use the person's real habits.
 """
 from collections import Counter
+from datetime import date
+from math import isfinite
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 MEAL_LABELS = {"breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner", "snack": "Snack"}
 RECENT_DAYS = 7
+
+
+def history_date(row):
+    value = row.get("date") or row.get("timestamp") or row.get("start_time")
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _activity_measure(row, *keys):
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, bool):
+            continue
+        value = _number(value, None)
+        if value is not None and isfinite(value) and value >= 0:
+            return round(value)
+    return None
+
+
+def activity_history(persona, through):
+    """Return the seven most recent dates with recorded activity."""
+    persona = persona or {}
+    days = {}
+    for row in persona.get("wearable_daily", []):
+        day = history_date(row)
+        if day is None or day > through:
+            continue
+        readings = {
+            "steps": _activity_measure(row, "steps"),
+            "active_minutes": _activity_measure(row, "active_minutes"),
+            "calories_burned_kcal": _activity_measure(row, "calories_burned_kcal", "calories_burned",
+                                                     "total_calories_kcal", "total_energy_kcal"),
+            "active_calories_kcal": _activity_measure(row, "active_calories_kcal", "active_energy_kcal", "active_kcal"),
+        }
+        present = {key: value for key, value in readings.items() if value is not None}
+        if present:
+            entry = days.setdefault(day, {"date": day.isoformat(), "workouts": []})
+            entry.update(present)
+            if row.get("source") == "imported_sample":
+                entry["source"] = "imported_sample"
+
+    for row in persona.get("workouts", []):
+        day = history_date(row)
+        if day is None or day > through:
+            continue
+        name = row.get("name") or row.get("workout_type") or row.get("sport") or row.get("type")
+        days.setdefault(day, {"date": day.isoformat(), "workouts": []})["workouts"].append({
+            "name": name.strip().replace("_", " ") if isinstance(name, str) and name.strip() else "Workout",
+            **({"location": row["location"]} if isinstance(row.get("location"), str) and row["location"].strip() else {}),
+            **({"source": "imported_sample"} if row.get("source") == "imported_sample" else {}),
+            **({"calories_estimated": True} if row.get("calories_estimated") is True else {}),
+            "minutes": _activity_measure(row, "duration_minutes", "duration_min"),
+            "calories_burned_kcal": _activity_measure(row, "calories_burned_kcal", "active_calories_kcal",
+                                                     "calories_burned", "calories_kcal", "energy_kcal", "kcal"),
+        })
+    return [days[day] for day in sorted(days, reverse=True)[:RECENT_DAYS]]
 
 
 class PersonaProfile(BaseModel):
