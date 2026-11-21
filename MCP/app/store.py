@@ -154,12 +154,12 @@ class Store:
         max_km: float = 10,
     ) -> list[dict]:
         here = _here(lat, lng)
-        q = query.lower().strip()
+        q = re.sub(r"\basoke\b", "asok", query.lower().strip())
         out = []
         for shop in self.shops.values():
             menu = [i for i in self.items.values() if i["shop_id"] == shop["shop_id"]]
             haystack = " ".join(
-                [shop["name"], shop["cuisine"], *(i["name"] for i in menu)]
+                [shop["name"], shop["branch"], shop["address"], shop["cuisine"], *(i["name"] for i in menu)]
             ).lower()
             km = _km(here, shop)
             if (q and q not in haystack) or km > max_km:

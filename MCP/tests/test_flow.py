@@ -139,10 +139,45 @@ def test_every_product_image_is_self_hosted():
 
     client = TestClient(app)
     catalog = client.get("/api/products").json()
-    assert len(catalog) == len({product["product_id"] for product in catalog}) == 15
+    assert len(catalog) == len({product["product_id"] for product in catalog}) == 27
     for p in catalog:
         res = client.get(urlparse(p["image_url"]).path)
         assert res.status_code == 200 and res.headers["content-type"] == "image/jpeg"
+
+
+def test_mall_categories_support_search_and_checkout(sim):
+    store, _ = sim
+    assert len(store.search_products(category="electronics")) == 6
+    assert len(store.search_products(category="lifestyle")) == 6
+    charger, = store.search_products("USB C charger", category="electronics")
+    tote, = store.search_products("canvas tote", category="lifestyle")
+    assert not store.search_products("power bank", category="lifestyle")
+
+    order = store.place_order("mall", [
+        {"product_id": charger["product_id"]},
+        {"product_id": tote["product_id"]},
+    ])
+    assert order["status"] == "pending_payment"
+    assert order["shipping_thb"] == 0
+    assert order["total_thb"] == 678
+    assert [item["id"] for item in order["items"]] == ["p_usb_c_charger", "p_canvas_tote"]
+    assert all(item["image_url"].endswith(f"/static/products/{item['id']}.jpg") for item in order["items"])
+
+
+def test_asok_restaurants_match_area_name_and_coordinates(sim):
+    store, _ = sim
+    expected = {"s_pala_pizza", "s_el_gaucho", "s_cabbages_condoms", "s_have_a", "s_savoey_seafood"}
+    named = store.search_restaurants("Asoke")
+    assert {shop["shop_id"] for shop in named} == expected
+    assert [shop["shop_id"] for shop in named] == [
+        shop["shop_id"] for shop in store.search_restaurants("Asok")
+    ]
+
+    nearby = store.search_restaurants(lat=13.7371, lng=100.5604, max_km=0.6)
+    assert {shop["shop_id"] for shop in nearby} == expected
+    distances = [shop["distance_km"] for shop in nearby]
+    assert distances == sorted(distances)
+    assert all(len(store.get_menu(shop_id)["menu"]) == 5 for shop_id in expected)
 
 
 def test_restaurant_catalog_and_matches_share_local_photos():
@@ -155,7 +190,7 @@ def test_restaurant_catalog_and_matches_share_local_photos():
 
     client = TestClient(app)
     catalog = client.get("/api/restaurants").json()
-    assert len(catalog) == len({shop["image_url"] for shop in catalog}) == 16
+    assert len(catalog) == len({shop["image_url"] for shop in catalog}) == 21
     item_ids = set()
     for shop in catalog:
         photo_path = urlparse(shop["image_url"]).path
@@ -169,7 +204,7 @@ def test_restaurant_catalog_and_matches_share_local_photos():
         for item in menu["menu"]:
             assert item["item_id"] not in item_ids
             item_ids.add(item["item_id"])
-    assert len(item_ids) == 96
+    assert len(item_ids) == 121
 
     by_id = {shop["shop_id"]: shop for shop in catalog}
     for hit in find_similar_dishes("grilled chicken salad", calories=400, protein_g=35):

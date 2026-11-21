@@ -35,17 +35,21 @@ for the demo and are cropped in the UI. Representative dish photos are labeled.
 
 ### Demo catalog
 
-Shopee Food has 16 Bangkok restaurants and 96 menu entries. Items tagged
+Shopee Food has 21 Bangkok restaurants and 121 menu entries. Items tagged
 `price_source=simulated` have fixture prices and estimated nutrition. All
 restaurant listings use the team demo phone by default. Try searching for
-`boat noodles`, `crispy tofu riceberry bowl` or `honey toast`.
+`boat noodles`, `crispy tofu riceberry bowl` or `honey toast`. For the five
+restaurants around BTS Asok, search `Asoke` or pass coordinates
+`13.7371, 100.5604` and `max_km=0.6`.
 
-Shopee Mall has 15 sleep and recovery products. Try `gel eye pads`,
-`white noise`, `yoga mat` or `resistance band`. The six new products have
-original, AI-generated studio thumbnails in [app/static/products](app/static/products).
-The prompts used a warm off-white background, a centered unbranded product,
-soft daylight and no text for each of the eye pads, neck pillow, sound machine,
-yoga mat, resistance bands and steel bottle.
+Shopee Mall has 27 mock products across `sleep`, `recovery`, `electronics`
+and `lifestyle`. Try `gel eye pads`, `power bank`, `canvas tote` or
+`packing cubes`. Product thumbnails are served from
+[app/static/products](app/static/products). Original demo thumbnails use an
+unbranded studio-photo prompt with a warm off-white backdrop, soft daylight
+and no text, plus a description of the individual product.
+The updated eye-patch image uses two smooth, translucent aqua gel crescents
+on ivory, photographed with soft side light.
 
 Mall order lines carry the product thumbnail to the ShopeePay PIN screen.
 
