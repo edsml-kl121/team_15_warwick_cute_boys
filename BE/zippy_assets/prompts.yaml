@@ -21,6 +21,7 @@ coach:
   chat_style: >-
     Plain English, warm and easy to read on a phone: at most two short sentences, about 30 words in total.
     No lists, headings or tables; the cards carry the details. Give one pick and one reason.
+    Show at most one card per reply.
   turn_reminder: Reply in English only, even if this message or any data is in Thai or another language.
   visitor_context: "The visitor's profile and today's progress: {visitor}"
   time_context: >-

@@ -86,12 +86,15 @@ def _closeness(actual: dict, targets: dict) -> float:
     return sum(scores) / len(scores)
 
 
+SERVICE_RADIUS_KM = 25  # every seeded restaurant is in central Bangkok
+
+
 def _here(lat: float | None, lng: float | None) -> dict:
-    return (
-        {"lat": lat, "lng": lng}
-        if lat is not None and lng is not None
-        else DEFAULT_LOCATION
-    )
+    """The searcher's position, or Silom when it is unknown or outside the Bangkok service area."""
+    if lat is None or lng is None:
+        return DEFAULT_LOCATION
+    here = {"lat": lat, "lng": lng}
+    return here if _km(here, DEFAULT_LOCATION) <= SERVICE_RADIUS_KM else DEFAULT_LOCATION
 
 
 def _validate_return_url(return_url: str) -> None:
@@ -165,6 +168,7 @@ class Store:
             out.append(
                 {
                     **shop,
+                    "location_source": "silom" if here is DEFAULT_LOCATION else "current",
                     "distance_km": round(km, 1),
                     "delivery_fee_thb": fee,
                     "eta_min": eta,
@@ -262,8 +266,10 @@ class Store:
         if len(shop_ids) != 1:
             raise SimError("multi_shop", "All items must come from one shop")
         shop = self.shops[shop_ids.pop()]
-        fee, eta = _delivery(_km(_here(lat, lng), shop))
-        return self._quote("food", lines, fee, eta, shop)
+        here = _here(lat, lng)
+        fee, eta = _delivery(_km(here, shop))
+        return {**self._quote("food", lines, fee, eta, shop),
+                "location_source": "silom" if here is DEFAULT_LOCATION else "current"}
 
     def quote_mall(self, items: list[dict]) -> dict:
         lines = self._lines(items, self.products, "mall")

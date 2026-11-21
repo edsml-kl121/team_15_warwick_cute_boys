@@ -20,9 +20,9 @@ First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Su
 In guest chat, **Use my location** in the menu asks the browser for permission.
 While enabled in that tab, requests can send `location: {lat, lng}` rounded to
 three decimal places. The backend uses it for Shopee Food lookups and delivery
-estimates without saving coordinates in the profile or chat history. With no
-position, searches use Silom. Ploy's scripted demo and background dinner tips
-use the fixture location.
+estimates without saving coordinates in the profile or chat history. The
+simulator uses Silom when the position is missing or more than 25 km from Silom.
+Ploy's scripted demo and background dinner tips use the fixture location.
 
 ## Reference fixtures
 

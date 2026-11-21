@@ -255,3 +255,18 @@ def test_payment_page_returns_to_zippy_only_after_approval(monkeypatch, sim):
         "order_id": [order_id],
     }
     assert mcp_server.get_order_status(order_id)["status"] == "confirmed"
+
+
+def test_search_outside_bangkok_falls_back_to_silom():
+    s = Store()
+    london = s.search_restaurants(lat=51.5074, lng=-0.1278)
+    silom = s.search_restaurants()
+    assert london and london == silom
+    assert {shop["location_source"] for shop in london} == {"silom"}
+    near_asok = s.search_restaurants(lat=13.7370, lng=100.5603)
+    assert [shop["distance_km"] for shop in near_asok] != [shop["distance_km"] for shop in silom]
+
+    items = [{"item_id": "m_easy_health_1"}]
+    quote = s.quote_food(items, lat=51.5074, lng=-0.1278)
+    assert quote == s.quote_food(items)
+    assert quote["location_source"] == "silom"
