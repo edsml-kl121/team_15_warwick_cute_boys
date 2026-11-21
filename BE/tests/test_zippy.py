@@ -47,7 +47,8 @@ class FakeShopee:
             self.dish_searches = [*getattr(self, "dish_searches", []), values]
             return [{"shop_id": shop_id, "name": "Caesar chicken", "price_thb": price,
                      "nutrition": {"protein_g": protein},
-                     "restaurant": {"shop_id": shop_id, "name": title, "distance_km": distance}}
+                     "restaurant": {"shop_id": shop_id, "name": title, "distance_km": distance,
+                                    "image_url": f"https://sim.example/{shop_id}.jpg"}}
                     for shop_id, title, price, protein, distance in [
                         ("s_easy_health", "Easy Health", 265, 45, 1.25),
                         ("s_salad_factory", "Salad Factory", 245, 35, .83),
@@ -659,3 +660,41 @@ def say_as(client, headers, message):
     events = [json.loads(line) for line in response.iter_lines()]
     assert events[-1]["type"] == "done", events
     return events
+
+
+class FakeImages:
+    async def find(self, folder, name):
+        return f"https://bucket.example/{folder}/{name}.jpg" if (folder, name) in {
+            ("dishes", "Grilled chicken salad"), ("restaurants", "s_easy_health")} else None
+
+
+def test_dinner_cards_carry_bucket_and_restaurant_images(tmp_path):
+    with demo(tmp_path, images=FakeImages()) as (client, _):
+        assert client.post("/demo/trigger", json={"moment": "dinner_tip"}).is_success
+        meal, places, _activity = cards(client.get("/feed").json())
+        assert meal["image_url"] == "https://bucket.example/dishes/Grilled chicken salad.jpg"
+        by_shop = {place["shop_id"]: place for place in places["places"]}
+        assert by_shop["s_easy_health"]["image_url"] == "https://bucket.example/restaurants/s_easy_health.jpg"
+        assert "image_url" not in by_shop["s_salad_factory"]
+        assert by_shop["s_salad_factory"]["stock_image_url"] == "https://sim.example/s_salad_factory.jpg"
+
+
+def test_bucket_images_find_slugged_keys_across_extensions():
+    import asyncio
+
+    from integrations import BucketImages, image_slug
+
+    class Client:
+        stored = {"dishes/spaghetti-bolognese.webp"}
+
+        def head_object(self, Bucket, Key):
+            if Key not in self.stored:
+                raise LookupError(Key)
+
+        def generate_presigned_url(self, _operation, Params, ExpiresIn):
+            return f"https://signed.example/{Params['Key']}"
+
+    images = BucketImages("menu", Client())
+    assert image_slug("Spaghetti Bolognese (Large)") == "spaghetti-bolognese-large"
+    assert asyncio.run(images.find("dishes", "Spaghetti  Bolognese")) == "https://signed.example/dishes/spaghetti-bolognese.webp"
+    assert asyncio.run(images.find("restaurants", "s_missing")) is None

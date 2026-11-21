@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from demo import Clock
-from integrations import AgentsCoach, MealPhotos, Prompts, Shopee
+from integrations import AgentsCoach, BucketImages, MealPhotos, Prompts, Shopee, bucket_client
 from persona import Persona, apply_to_profile
 from push import WebPush, add_subscription
 from service import MOMENTS, Zippy
@@ -150,7 +150,8 @@ def visitor_id(request, demo):
 
 
 def create_app(*, settings=None, shopee=None, clock=None, store=None, health=None,
-               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None):
+               phone=None, realtime=None, photos=None, coach=None, prompts_path=None, database=None, push=None,
+               images=None):
     settings = settings or Settings()
     push_sender = push or (WebPush(settings.vapid_public_key, settings.vapid_private_key, settings.vapid_subject)
                            if settings.vapid_public_key and settings.vapid_private_key else None)
@@ -186,6 +187,9 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
                                       os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
                                       os.getenv("FOOD_SCAN_MODEL") or "gpt-4.1-mini")
         assistant = coach or (AgentsCoach(prompts) if settings.use_ai else None)
+        menu_images = images or (BucketImages(os.environ["S3_BUCKET"], bucket_client(
+            os.getenv("AWS_REGION"), os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
+        )) if os.getenv("S3_BUCKET") else None)
         demo_date = local_clock.now().date().isoformat()
         mongo_client = None
         db = database
@@ -206,7 +210,7 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
 
         def build(guest_store, demo):
             return Zippy(guest_store, local_clock, health or DemoHealth(), adapter, prompts,
-                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender)
+                         assistant, telephony if demo else DemoPhone(), photo_reader, push_sender, menu_images)
 
         def open_visitor(owner, *, demo, profile=None, create=False):
             if owner and owner not in visitors:
