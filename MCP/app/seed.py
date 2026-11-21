@@ -68,7 +68,7 @@ MALL_PRODUCTS = [
         199,
         4.8,
         "Blocks 100% light, zero pressure on eyes.",
-        WIKIMEDIA + "thumb/e/e0/Schlafmaske.jpg/500px-Schlafmaske.jpg",
+        None,
         "Dreamy Sleep Official",
     ),
     (
@@ -78,7 +78,7 @@ MALL_PRODUCTS = [
         59,
         4.3,
         "Nylon, elastic strap, folds flat for flights.",
-        WIKIMEDIA + "6/6f/Sleep_mask.jpg",
+        None,
         "Bangkok Travel Gear",
     ),
     (
@@ -88,7 +88,7 @@ MALL_PRODUCTS = [
         129,
         4.5,
         "Soft cotton, tie strap fits any head size.",
-        WIKIMEDIA + "thumb/6/6a/Masque_de_sommeil.jpg/500px-Masque_de_sommeil.jpg",
+        None,
         "HomeRest Store",
     ),
     (
@@ -98,9 +98,7 @@ MALL_PRODUCTS = [
         390,
         4.9,
         "22 momme silk, gentle on skin and lashes.",
-        WIKIMEDIA
-        + "thumb/1/1a/Handmade_sleepmasks_eyemasks_Paris%2C_France.jpg/"
-        + "500px-Handmade_sleepmasks_eyemasks_Paris%2C_France.jpg",
+        None,
         "Silk Lane Boutique",
     ),
     (
