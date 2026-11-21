@@ -23,7 +23,6 @@
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const main = document.querySelector('.ph');
   const headerStatus = document.querySelector('.header-status');
-  const lock = document.querySelector('.lock-screen');
   const onboarding = document.querySelector('.onboarding-dialog');
   const onboardingForm = onboarding.querySelector('form');
   const pendingOrderKey = service.demo ? 'zippy-ploy-pending-order' : 'zippy-guest-pending-order';
@@ -309,7 +308,31 @@
     return card;
   }
 
-  function createMessage(message) {
+  function actionButton(action, icon, label, index, pressed) {
+    const button = node('button');
+    button.type = 'button';
+    button.dataset.action = action;
+    button.dataset.index = index;
+    button.setAttribute('aria-label', label);
+    if (pressed !== undefined) button.setAttribute('aria-pressed', String(pressed));
+    const glyph = node('i', 'material-icons', icon);
+    glyph.setAttribute('aria-hidden', 'true');
+    button.append(glyph);
+    return button;
+  }
+
+  function createMessageActions(message, index, isLast) {
+    const up = actionButton('rate-message', 'thumb_up', 'Good answer', index, message.rating === 'up');
+    const down = actionButton('rate-message', 'thumb_down', 'Bad answer', index, message.rating === 'down');
+    up.dataset.rating = 'up';
+    down.dataset.rating = 'down';
+    const bar = node('div', 'msg-actions');
+    bar.append(actionButton('copy-message', message.copied ? 'check' : 'content_copy', 'Copy message', index), up, down);
+    if (isLast) bar.append(actionButton('regenerate', 'refresh', 'Regenerate', index));
+    return bar;
+  }
+
+  function createMessage(message, index) {
     if (message.role === 'assistant') {
       const group = node('div', 'assistant-turn');
       if (message.text) {
@@ -340,6 +363,10 @@
         }
         group.append(replies);
       }
+      if (message.text && Number.isInteger(index) && !active.pending) {
+        const canRegenerate = index === active.messages.length - 1 && active.messages[index - 1]?.role === 'user';
+        group.append(createMessageActions(message, index, canRegenerate));
+      }
       return group;
     }
     const group = node('div', 'user-turn');
@@ -357,7 +384,7 @@
   }
 
   function renderMessages(animate = false) {
-    headerStatus.textContent = HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
+    headerStatus.textContent = active.pending ? 'Replying…' : HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
     const messages = active.messages.map(createMessage);
     if (animate) messages.at(-1)?.classList.add('message-enter');
@@ -553,7 +580,6 @@
       for (const item of items) {
         if (!Number.isInteger(item.id) || item.id <= (thread.lastFeedId || 0)) continue;
         thread.lastFeedId = item.id;
-        if (item.notify && thread === active) showLock(item.notify, item.at);
         appendFeed(thread, item);
       }
       if (items.length) {
@@ -575,18 +601,6 @@
     }
   }
 
-  function showLock(notify, at) {
-    if (typeof notify?.title !== 'string') return;
-    const time = new Date(at);
-    const valid = !Number.isNaN(time.getTime());
-    const zone = { timeZone: 'Asia/Bangkok' };
-    lock.querySelector('.lock-time').textContent = valid ? time.toLocaleTimeString('en-GB', { ...zone, hour: '2-digit', minute: '2-digit' }) : '';
-    lock.querySelector('.lock-date').textContent = valid ? time.toLocaleDateString('en-GB', { ...zone, weekday: 'long', day: 'numeric', month: 'long' }) : '';
-    lock.querySelector('.lock-title').textContent = `Zippy · ${notify.title}`;
-    lock.querySelector('.lock-body').textContent = notify.body || '';
-    lock.hidden = false;
-    lock.querySelector('.nt').focus({ preventScroll: true });
-  }
 
   // Depth decides slide direction; the stack lets Back return to wherever you came from.
   const DEPTH = { chat: 0, today: 1, profile: 1, food: 2, apps: 2 };
@@ -661,7 +675,6 @@
       active = newThread();
       pendingOrder = null;
       sessionStorage.removeItem(pendingOrderKey);
-      lock.hidden = true;
       closeHistory();
       location.hash = '';
       renderMessages();
@@ -708,6 +721,32 @@
       if (mode === 'voice') setMode('idle');
       openPhotoPicker();
     },
+    async 'copy-message'(control) {
+      const message = active.messages[Number(control.dataset.index)];
+      if (!message?.text) return;
+      try {
+        await navigator.clipboard.writeText(message.text);
+        message.copied = true;
+        renderMessages();
+        setTimeout(() => { delete message.copied; renderMessages(); }, 1500);
+      } catch {
+        showFeedback('Couldn’t copy this message.');
+      }
+    },
+    'rate-message'(control) {
+      const message = active.messages[Number(control.dataset.index)];
+      if (!message) return;
+      // ponytail: rating stays on the client; add a feedback endpoint when someone reads the ratings.
+      message.rating = message.rating === control.dataset.rating ? undefined : control.dataset.rating;
+      renderMessages();
+    },
+    regenerate(control) {
+      const index = Number(control.dataset.index);
+      const user = active.messages[index - 1];
+      if (active.pending || index !== active.messages.length - 1 || user?.role !== 'user') return;
+      active.messages.splice(index);
+      requestReply(active, user);
+    },
     retry(control) {
       const message = active.messages.find(item => item.id === control.dataset.messageId && item.role === 'user');
       if (message) requestReply(active, message);
@@ -719,11 +758,6 @@
     'enable-push': control => push.enable(active.id, control),
     'demo-reset': resetDemo,
     'leave-guest': leaveGuest,
-    'open-notification': () => {
-      lock.hidden = true;
-      location.hash = '';
-      scrollToLatest();
-    },
   };
 
   document.addEventListener('click', event => {
@@ -867,7 +901,6 @@
     const fields = new FormData(onboardingForm);
     const body = { name: fields.get('name').trim(), food: fields.get('food').trim() };
     if (!body.name) return showOnboarding('Enter a display name.', true);
-    if (fields.get('budget')) body.budget_thb = Number(fields.get('budget'));
     const button = onboardingForm.querySelector('button[type="submit"]');
     button.disabled = true;
     try {

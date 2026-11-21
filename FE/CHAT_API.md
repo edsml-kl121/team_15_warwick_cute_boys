@@ -6,7 +6,7 @@ Use the [Zippy API contracts](../ZIPPY_SPEC.md#5-contracts) for route and card d
 
 The chat client defaults to `./api/`. Caddy strips the `/api` prefix before forwarding to `BACKEND_URL` and adds the server-side `API_TOKEN`. Set matching tokens on both deployed servers. If hosting the frontend on S3 later, set the `zippy-api` meta tag to the HTTPS prefix of an authenticated API gateway or frontend proxy. Keep API tokens and AWS credentials out of static files.
 
-First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Submit `POST /visitor` with a display `name`, optional `food` and optional `budget_thb`. The backend sets a same-origin HTTP-only cookie. Open `/?demo=ploy` for the Ploy scenario. The frontend sets the `X-Zippy-Demo: 1` header and the backend issues a separate demo cookie.
+First arrival calls `GET /visitor` and shows guest setup if `ready` is false. Submit `POST /visitor` with a display `name`, and optional `food`. The backend sets a same-origin HTTP-only cookie. Open `/?demo=ploy` for the Ploy scenario. The frontend sets the `X-Zippy-Demo: 1` header and the backend issues a separate demo cookie.
 
 **Leave Ploy demo** opens the guest URL and resumes the guest cookie if present. **Leave guest session** sends `DELETE /visitor` to clear the active HTTP-only cookie and return to setup. The backend retains the old guest records. A display name cannot restore access to a previous guest profile.
 

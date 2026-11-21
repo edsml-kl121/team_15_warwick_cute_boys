@@ -302,13 +302,12 @@ class RecommendationAgents:
                                            protein_g=chosen["protein_g"], limit=35, **location)
         except Exception:
             raise RecommendationUnavailable("Shopee Food listings are unavailable. Try again.") from None
-        budget = profile["preferences"]["budget_thb"]
         places = {}
         for hit in hits:
             restaurant = hit.get("restaurant") or {}
             nutrition = hit.get("nutrition") or {}
             price = number(hit.get("price_thb"))
-            if not restaurant.get("shop_id") or price is None or price > budget:
+            if not restaurant.get("shop_id") or price is None:
                 continue
             places.setdefault(restaurant["shop_id"], {
                 "shop_id": restaurant["shop_id"], "name": restaurant["name"], "dish": hit["name"],
@@ -325,7 +324,7 @@ class RecommendationAgents:
                 text += " These listings don’t include verified allergen information."
             items.append({"text": text, "card": {"kind": "places", "places": list(places.values())}})
         else:
-            items.append({"text": "I didn’t find a similar Shopee Food listing within your meal budget."})
+            items.append({"text": "I didn’t find a similar Shopee Food listing nearby."})
         return items, []
 
     async def item(self, zippy, profile, wearable):

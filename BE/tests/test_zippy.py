@@ -465,7 +465,7 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         assert client.get("/visitor", headers=guest_headers).json() == {"ready": False}
         assert client.get("/profile", headers=guest_headers).status_code == 401
         reply = client.post("/visitor", headers=guest_headers, json={
-            "name": "  Nok ", "food": "Vegetarian", "budget_thb": 200,
+            "name": "  Nok ", "food": "Vegetarian",
         })
         assert reply.is_success
         assert "httponly" in reply.headers["set-cookie"].lower()
@@ -499,7 +499,7 @@ def test_guest_data_and_cards_survive_backend_restart(tmp_path):
         assert client.get("/visitor", headers=guest_headers).json() == {"ready": True}
         profile = client.get("/profile", headers=guest_headers).json()
         assert profile["name"] == "Nok"
-        assert profile["preferences"]["budget_thb"] == 200
+        assert "budget_thb" not in profile["preferences"]
         history = client.get("/sessions/guest-chat", headers=guest_headers).json()
         assert history["last_feed_id"] == 1
         assert [event["type"] for event in history["timeline"]] == ["turn", "feed"]
@@ -645,7 +645,7 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
     guest = {"X-Zippy-Demo": "0"}
     presenter = {"X-Presenter-Key": "local-presenter"}
     with demo(tmp_path, recommendation_data=data) as (client, simulator):
-        assert client.post("/visitor", headers=guest, json={"name": "Krit", "budget_thb": 270}).is_success
+        assert client.post("/visitor", headers=guest, json={"name": "Krit"}).is_success
         body = {"guest_name": "krit", "agent": "food"}
         assert client.post("/presenter/trigger", json=body).status_code == 403
         assert client.post("/presenter/trigger", json={**body, "moment": "dinner_tip"},
@@ -665,7 +665,7 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
         assert client.get("/food-log/catalog-image?food_id=peanut").status_code == 404
         assert client.get("/food-log/catalog-image?food_id=chicken",
                           headers={"Authorization": "Bearer wrong"}).status_code == 401
-        assert [p["price_thb"] for p in places["places"]] == [265, 245]
+        assert [p["price_thb"] for p in places["places"]] == [265, 245, 275]
         assert simulator.calls[-1] == ("find_similar_dishes", {
             "dish": "Chicken salad", "calories": 400, "protein_g": 35,
             "limit": 35, "lat": 13.73, "lng": 100.53,
