@@ -847,6 +847,20 @@
     }
   }
 
+  // A presenter trigger starts its own chat on the backend; open it as soon as it appears.
+  async function openTriggeredChat() {
+    const sessions = await service.json('sessions');
+    if (!Array.isArray(sessions)) return false;
+    const known = new Set(threads.map(item => item.id));
+    const fresh = sessions.find(item => item.id?.startsWith('trigger-') && !known.has(item.id));
+    if (!fresh) return false;
+    await loadThread(fresh);
+    threads = [fresh, ...threads];
+    active = fresh;
+    renderMessages(true);
+    return true;
+  }
+
   async function checkUpdates() {
     if (!ready || checkingUpdates || document.hidden) return;
     const thread = active;
@@ -865,6 +879,7 @@
           sessionStorage.removeItem(pendingOrderKey);
         }
       }
+      if (await openTriggeredChat()) return;
       if (!thread.connected && !service.demo) return;
       const query = new URLSearchParams({ session_id: thread.id, after: thread.lastFeedId || 0 });
       const items = await service.json('feed?' + query);
@@ -1312,12 +1327,11 @@
     tickChatScroll();
   }, { passive: true });
   // Watch both the chat area (keyboard, dock modes) and its content (card photos loading, streamed text).
+  // Snap, never smooth-scroll: content grows every streamed frame, and restarting a smooth scroll
+  // that often makes WebKit bounce the view up and down.
   const keepPinned = new ResizeObserver(() => {
-    const previousHeight = chatHeight;
     chatHeight = chat.clientHeight;
-    if (pinnedToLatest && chat.scrollHeight - chat.clientHeight - chat.scrollTop > 1) {
-      scrollToLatest(chatHeight === previousHeight);
-    }
+    if (pinnedToLatest && chat.scrollHeight - chat.clientHeight - chat.scrollTop > 1) scrollToLatest();
   });
   keepPinned.observe(chat);
   keepPinned.observe(log);

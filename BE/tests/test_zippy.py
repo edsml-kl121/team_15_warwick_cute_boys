@@ -1247,8 +1247,8 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
                            headers=presenter).status_code == 400
         result = client.post("/presenter/trigger", json=body, headers=presenter)
         assert result.is_success, result.text
-        assert result.json()["session_id"] == "presenter"
-        feed = "/feed?session_id=presenter"
+        assert result.json()["session_id"].startswith("trigger-")
+        feed = f"/feed?session_id={result.json()['session_id']}"
         entries = client.get(feed, headers=guest).json()
         [meal] = cards(entries)
         assert meal["dish"] == "Chicken salad"
@@ -1288,13 +1288,13 @@ def test_presenter_agents_use_guest_data_and_publish_search_results(tmp_path):
 
         result = client.post("/presenter/trigger", json={**body, "agent": "item"}, headers=presenter)
         assert result.is_success, result.text
-        entries = client.get(feed, headers=guest).json()
+        entries = client.get(f"/feed?session_id={result.json()['session_id']}", headers=guest).json()
         assert "5.5 hours" in entries[-2]["text"] and "below your 7-hour goal" in entries[-2]["text"]
         assert entries[-2]["references"] == ["health_data"]
         assert cards(entries)[-1]["products"][0]["item_id"] == "p_eyemask"
         assert simulator.calls[-1] == ("search_products", {"query": "eye mask"})
         assert client.post("/actions/buy", headers=guest,
-                           json={"session_id": "presenter", "item_id": "p_eyemask"}).is_success
+                           json={"session_id": result.json()["session_id"], "item_id": "p_eyemask"}).is_success
 
 
 def test_presenter_reminder_triggers_for_all_guests_named_mew(tmp_path):
@@ -1345,14 +1345,15 @@ def test_presenter_agents_read_fresh_mongo_history_and_handle_new_guests(tmp_pat
         }}})
         assert client.get("/today", headers=guest).json()["sleep"]["source"] == "Imported sample"
         assert client.get("/food-log", headers=guest).json()["meals"][0]["source"] == "imported_sample"
-        for agent in ("food", "item"):
+        def trigger_feed(agent):
             result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": agent}, headers=presenter)
             assert result.is_success, result.text
-        feed = "/feed?session_id=presenter"
-        entries = client.get(feed, headers=guest).json()
-        assert cards(entries)[0]["dish"] == "Chicken salad"
-        assert "imported sample meal history" in cards(entries)[0]["why"]
-        assert "An imported sample records 5.5 hours of sleep" in entries[-2]["text"]
+            return client.get(f"/feed?session_id={result.json()['session_id']}", headers=guest).json()
+
+        food, item = trigger_feed("food"), trigger_feed("item")
+        assert cards(food)[0]["dish"] == "Chicken salad"
+        assert "imported sample meal history" in cards(food)[0]["why"]
+        assert "An imported sample records 5.5 hours of sleep" in item[-2]["text"]
 
         database.guests.update_one({"_id": owner}, {"$set": {"persona": {
             "profile": {"persona_id": "P10", "display_name": "Fresh"},
@@ -1361,12 +1362,8 @@ def test_presenter_agents_read_fresh_mongo_history_and_handle_new_guests(tmp_pat
             "food_history_log": [{"date": "2026-11-21", "meal_name": "Logged meal",
                                   "meal_totals": {"calories": 1200, "protein_g": 50}}],
         }}})
-        result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": "food"}, headers=presenter)
-        assert result.is_success, result.text
-        assert "Your meal history shows 50 g" in cards(client.get(feed, headers=guest).json())[-1]["why"]
-        result = client.post("/presenter/trigger", json={"guest_name": "Fresh", "agent": "item"}, headers=presenter)
-        assert result.is_success, result.text
-        assert "5.5 hours" in client.get(feed, headers=guest).json()[-2]["text"]
+        assert "Your meal history shows 50 g" in cards(trigger_feed("food"))[-1]["why"]
+        assert "5.5 hours" in trigger_feed("item")[-2]["text"]
         assert client.get("/today", headers=guest).json()["sleep"]["minutes"] == 330
         assert client.get("/food-log", headers=guest).json()["totals"]["protein_g"] == 50
         path = "/recommendations/health-history?start=2026-11-20&end=2026-11-20"
@@ -1416,8 +1413,9 @@ def test_presenter_exercise_review_uses_saved_location_and_logs_only_on_confirma
     body = {"guest_name": "Exercise guest", "exercise_review": True}
     with demo(tmp_path, database=database) as (client, _):
         assert client.post("/visitor", headers=guest, json={"name": "Exercise guest"}).is_success
-        feed = "/feed?session_id=presenter"
-        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
+        result = client.post("/presenter/trigger", json=body, headers=presenter)
+        assert result.is_success
+        feed = f"/feed?session_id={result.json()['session_id']}"
         location = client.get(feed, headers=guest).json()[-1]["card"]
         assert location["kind"] == "exercise_location"
         assert location["venue"] == "71 Sports Club"
@@ -1431,21 +1429,23 @@ def test_presenter_exercise_review_uses_saved_location_and_logs_only_on_confirma
             "profile": {"persona_id": "exercise-guest", "display_name": "Exercise guest"}, "workouts": [workout],
         }}})
         assert client.post("/presenter/trigger", json=body).status_code == 403
-        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
-        review = client.get(feed, headers=guest).json()[-1]
+        result = client.post("/presenter/trigger", json=body, headers=presenter)
+        assert result.is_success
+        review = client.get(f"/feed?session_id={result.json()['session_id']}", headers=guest).json()[-1]
         assert "Near West Courts" in review["text"] and "600 kcal" in review["text"]
         assert not review.get("card")
         assert review["quick_replies"] == ["Log this", "Skip"]
         assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [workout]
 
         def reply(message):
-            response = client.post("/chat", headers=guest, json={"session_id": "presenter", "message": message})
+            response = client.post("/chat", headers=guest, json={"session_id": result.json()["session_id"], "message": message})
             assert response.is_success
             return response.text
 
         assert "Skipped" in reply(review["quick_reply_messages"]["Skip"])
         assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [workout]
-        assert client.post("/presenter/trigger", json=body, headers=presenter).is_success
+        result = client.post("/presenter/trigger", json=body, headers=presenter)
+        assert result.is_success
         assert "Logged" in reply(review["quick_reply_messages"]["Log this"])
         assert "no pending exercise review" in reply(review["quick_reply_messages"]["Log this"])
         assert database.guests.find_one({"_id": owner})["persona"]["workouts"] == [
@@ -1545,14 +1545,16 @@ def test_presenter_recap_and_dinner_use_imported_history(tmp_path):
         assert client.post("/visitor", headers=guest, json={"name": "Krit"}).is_success
         assert client.put("/persona", headers=guest, json=history).is_success
 
-        assert client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "dinner_tip"}).is_success
-        feed = client.get("/feed?session_id=presenter", headers=guest).json()
+        result = client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "dinner_tip"})
+        assert result.is_success
+        feed = client.get(f"/feed?session_id={result.json()['session_id']}", headers=guest).json()
         meal = next(card for card in cards(feed) if card["kind"] == "meal")
         assert meal["dish"] == "Spaghetti Bolognese" and "Pasta Fresca" in meal["why"]
         assert shopee.dish_searches[-1]["dish"] == "Spaghetti Bolognese" and shopee.dish_searches[-1]["calories"] == 600
 
-        assert client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "weekly_recap"}).is_success
-        feed = client.get("/feed?session_id=presenter", headers=guest).json()
+        result = client.post("/presenter/trigger", headers=presenter, json={"guest_name": "Krit", "moment": "weekly_recap"})
+        assert result.is_success
+        feed = client.get(f"/feed?session_id={result.json()['session_id']}", headers=guest).json()
         recap = next(card for card in cards(feed) if card["kind"] == "weekly_recap")
         assert recap["days"] == 3 and recap["top_restaurant"] == "Pasta Fresca" and recap["kcal_goal"] == 2491
         assert feed[-1]["quick_replies"] == ["Plan tomorrow's meals", "Find lighter orders", "Not now"]

@@ -381,7 +381,9 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
     async def sessions(zippy=Depends(service)):
         return sorted([
             {"id": session_id, "updated_at": session["updated_at"],
-             "title": next((item["message"][:140] for item in session["timeline"] if item["type"] == "turn"), "Chat")}
+             "title": next((item["message"][:140] for item in session["timeline"] if item["type"] == "turn"),
+                           next((item["item"]["notify"]["title"] for item in session["timeline"]
+                                 if item["type"] == "feed" and item["item"].get("notify")), "Chat"))}
             for session_id, session in zippy.state["sessions"].items() if session.get("timeline")
         ], key=lambda session: session["updated_at"], reverse=True)
 
@@ -644,8 +646,8 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             zippy = request.app.state.open_visitor(owner, demo=owner.startswith("demo-"))
             if zippy is None:
                 raise HTTPException(404, f"No guest named {body.guest_name}.")
-            sessions = zippy.state["sessions"]
-            session_id = max(sessions, key=lambda key: sessions[key].get("updated_at") or "", default="presenter")
+            # Each presenter trigger opens its own chat, which the guest's app switches to.
+            session_id = f"trigger-{secrets.token_hex(6)}"
             if body.agent:
                 try:
                     await zippy.recommend(request.app.state.recommendations, body.agent, session_id)
