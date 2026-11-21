@@ -563,7 +563,9 @@
   function renderMessages(animate = false, { followLatest = true } = {}) {
     headerStatus.textContent = active.pending ? 'Replying…' : HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
-    const messages = active.messages.map(createMessage);
+    // A voice bubble shows once it has words; one opened by background noise never gets any.
+    const messages = active.messages.flatMap((message, index) => (
+      message.voiceId && !message.text.trim() ? [] : [createMessage(message, index)]));
     if (animate) messages.at(-1)?.classList.add('message-enter');
     if (active.pending && active.response) messages.push(createLiveReply(active.response));
     log.replaceChildren(...messages);

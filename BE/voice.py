@@ -11,36 +11,51 @@ Server → browser   binary frames: raw PCM16 coach audio
                      {"type": "tool", "name"}                   the coach started a tool
                      {"type": "card" | "quick_replies", ...}    shown after the reply's words, like chat
                      {"type": "done"}                           the reply is complete
-                     {"type": "interrupted"}                    the visitor talked over the coach: drop unplayed audio
+                     {"type": "hold"}                           something that may be speech started: pause the coach
+                     {"type": "resume"}                         it had no words: carry on from where the coach paused
+                     {"type": "interrupted"}                    the visitor said words over the coach: drop unplayed audio
                      {"type": "error", "message"}
 
 Each finished reply is saved to the chat session exactly like a typed turn, so it is there when the chat reloads.
+
+Background noise often sounds like speech to turn detection, so a detected turn only pauses the coach. The bridge
+answers, and drops the rest of the coach's reply, only once the visitor's words are transcribed. The first words
+arrive about a tenth of a second after they stop talking, well before a reply's first audio would.
 """
 import asyncio
 import json
 import logging
+import re
 
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 logger = logging.getLogger(__name__)
 MAX_AUDIO_BYTES = 64 * 1024  # per frame; the recorder sends about 8 KB at a time
 TRANSCRIPTION_MODEL = "gpt-live-transcribe"
+WORDS = re.compile(r"\w")
 
 
-async def open_voice_session(agent, *, model, voice=None, languages=("en",)):
-    """An entered Realtime session that takes and returns browser audio."""
+async def open_voice_session(agent, *, model, voice=None, languages=("en",), threshold=0.7, silence_ms=500,
+                             noise_reduction="near_field"):
+    """An entered Realtime session that takes and returns browser audio.
+
+    Noise reduction filters the microphone before turn detection hears it; near_field suits a phone or headset held
+    close and strips distant voices. `threshold` (0 to 1) is how sure turn detection must be that it hears speech.
+    The model never answers by itself: VoiceBridge asks for a reply once the visitor's words are transcribed.
+    """
     from agents.realtime import RealtimeRunner
 
     output = {"format": "pcm16"}
     if voice:
         output["voice"] = voice
+    audio_in = {"format": "pcm16", "transcription": {"model": TRANSCRIPTION_MODEL, "languages": list(languages)},
+                "turn_detection": {"type": "server_vad", "threshold": threshold, "prefix_padding_ms": 300,
+                                   "silence_duration_ms": silence_ms, "interrupt_response": True,
+                                   "create_response": False}}
+    if noise_reduction:
+        audio_in["noise_reduction"] = {"type": noise_reduction}
     runner = RealtimeRunner(agent, config={"model_settings": {"model_name": model, "audio": {
-        "input": {"format": "pcm16", "transcription": {"model": TRANSCRIPTION_MODEL, "languages": list(languages)},
-                  # "high" answers sooner after the visitor stops, which suits short spoken questions.
-                  "turn_detection": {"type": "semantic_vad", "eagerness": "high", "interrupt_response": True,
-                                     "create_response": True}},
-        "output": output,
-    }}})
+        "input": audio_in, "output": output}}})
     session = await runner.run()
     await session.enter()
     return session
@@ -63,6 +78,9 @@ class VoiceBridge:
         self.tools = []        # tools the coach used for this reply
         self.turn_called_tool = False  # a model turn that calls a tool is followed by another that finishes the reply
         self.unsaved = None    # a finished reply waiting for the visitor's words to be transcribed
+        self.turns = {}        # item_id -> {"words", "ended"} for detected speech not yet answered or dismissed
+        self.paused = False    # the browser holds the coach's audio until we know whether they said anything
+        self.session = None
 
     async def send(self, **message):
         try:
@@ -71,6 +89,7 @@ class VoiceBridge:
             pass
 
     async def run(self, session):
+        self.session = session
         tasks = [asyncio.create_task(self.from_browser(session)), asyncio.create_task(self.from_model(session))]
         try:
             await self.send(type="ready")
@@ -102,7 +121,7 @@ class VoiceBridge:
             if event.type == "audio":
                 await self.socket.send_bytes(event.audio.data)
             elif event.type == "audio_interrupted":
-                await self.send(type="interrupted")
+                await self.pause()
             elif event.type == "history_added":
                 if getattr(event.item, "type", None) == "function_call":
                     self.turn_called_tool = True  # The reply continues after the tool, so keep its bubble open.
@@ -132,6 +151,8 @@ class VoiceBridge:
             return  # Unchanged, or the history hasn't caught up with words that already streamed.
         self.heard[item_id] = text
         await self.send(type="user", item_id=item_id, text=text)
+        if WORDS.search(text):
+            await self.said_something(item_id)
         await self.save()
 
     async def words(self, data):
@@ -144,11 +165,64 @@ class VoiceBridge:
                 delta = (" " if self.reply else "") + delta  # a new model turn continues the same reply
                 self.reply.append([data.item_id, delta])
             await self.send(type="delta", text=delta)
-        elif kind == "raw_server_event" and isinstance(data.data, dict) and \
-                data.data.get("type") == "conversation.item.input_audio_transcription.delta":  # the visitor speaking
-            item_id, delta = data.data.get("item_id"), data.data.get("delta")
-            if item_id and delta:
-                await self.hear(item_id, self.heard.get(item_id, "") + delta)
+        elif kind == "raw_server_event" and isinstance(data.data, dict):
+            await self.server_event(data.data.get("type"), data.data)
+
+    async def server_event(self, kind, data):
+        """Turn detection and transcription of the visitor's speech."""
+        item_id = data.get("item_id")
+        if not item_id:
+            return
+        if kind == "input_audio_buffer.speech_started":
+            self.turns[item_id] = {"words": False, "ended": False}
+            await self.pause()
+        elif kind == "input_audio_buffer.committed":  # they stopped talking
+            if item_id in self.turns:
+                self.turns[item_id]["ended"] = True
+                await self.answer_when_ready(item_id)
+        elif kind == "conversation.item.input_audio_transcription.delta":  # the visitor speaking
+            if data.get("delta"):
+                await self.hear(item_id, self.heard.get(item_id, "") + data["delta"])
+        elif kind == "conversation.item.input_audio_transcription.completed":
+            transcript = (data.get("transcript") or "").strip()
+            if WORDS.search(transcript):
+                await self.hear(item_id, transcript)
+            else:
+                await self.dismiss(item_id)
+        elif kind == "conversation.item.input_audio_transcription.failed":
+            await self.said_something(item_id)  # Unheard isn't noise: answer from the audio rather than ignore them.
+
+    async def pause(self):
+        if not self.paused:
+            self.paused = True
+            await self.send(type="hold")
+
+    async def said_something(self, item_id):
+        """Their words drop the rest of the coach's reply and earn an answer once they finish."""
+        turn = self.turns.get(item_id)
+        if turn is None or turn["words"]:
+            return
+        turn["words"] = True
+        if self.paused:
+            self.paused = False
+            await self.send(type="interrupted")
+        await self.answer_when_ready(item_id)
+
+    async def answer_when_ready(self, item_id):
+        turn = self.turns.get(item_id)
+        if turn and turn["words"] and turn["ended"]:
+            del self.turns[item_id]
+            from agents.realtime.model_inputs import RealtimeModelSendRawMessage
+
+            await self.session.model.send_event(RealtimeModelSendRawMessage(message={"type": "response.create"}))
+
+    async def dismiss(self, item_id):
+        """Detected speech with no words, such as a voice across the room: the coach carries on."""
+        if self.turns.pop(item_id, None) is None:
+            return
+        if self.paused and not self.turns:
+            self.paused = False
+            await self.send(type="resume")
 
     async def finish_reply(self):
         """A model turn ended. The reply is complete unless this turn called a tool: the tool may run before or

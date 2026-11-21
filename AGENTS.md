@@ -8,7 +8,7 @@ Zippy is a chat-first proactive health assistant. The demo follows Ploy from a s
 - **Integration.** Read [the contracts](ZIPPY_SPEC.md#5-contracts) before changing routes, streams, cards, tools or prompts. Build cards from tool results. Edit agent instructions in the backend YAML and validate prompt placeholders at startup.
 - **Backend configuration.** Use [BE/.env.example](BE/.env.example) for local setup and the canonical Shopee MCP endpoint. For Railway variables and optional integrations, read [the configuration section](ZIPPY_SPEC.md#9-configuration).
 - **Chat frontend handoff.** Read [FE/CHAT_API.md](FE/CHAT_API.md) when wiring the chat stream, Shopee checkout, or transcription.
-- **Payments and calls.** Ploy approves every payment on the simulator's ShopeePay PIN page. Zippy only requests payment. Use Shopee Food for listings and Twilio for table reservations. Use only verified team test numbers for live calls. Read [the safety rules](ZIPPY_SPEC.md#10-safety-rules) before exercising these flows.
+- **Payments and calls.** Ploy approves every payment on the simulator's ShopeePay PIN page. Zippy only requests payment. Use Shopee Food for listings and Twilio for table reservations. Every visitor, not only the Ploy demo, books through the same phone. Use only verified team test numbers for live calls. Read [the safety rules](ZIPPY_SPEC.md#10-safety-rules) before exercising these flows.
 - **Verification.** Keep external dependencies injectable and cover behavior changes with focused, offline tests. See [the test plan](ZIPPY_SPEC.md#8-testing).
 
 ## Current infrastructure
@@ -18,6 +18,7 @@ Zippy is a chat-first proactive health assistant. The demo follows Ploy from a s
 - **Files.** A Railway S3-compatible bucket stores meal photos. MongoDB keeps only the object key, and the backend signs URLs on read.
 - **Visitors.** Each browser gets a guest cookie (`POST /visitor`). `/?demo=ploy` opens the scripted Ploy demo with its own cookie and presenter controls.
 - **Health history.** A visitor can import their own history file (profile, meals, wearables, workouts, weights and body scans) with `PUT /persona`. The backend stores it on the guest, maps it into the profile goals and food log, and gives the coach a compact summary through the `get_health_history` tool. The raw log never goes to the model.
+- **Voice.** Tapping the microphone opens a live conversation over `WS /voice`. `BE/voice.py` bridges 24 kHz PCM16 browser audio to an OpenAI Realtime `RealtimeAgent` that shares the chat coach's tools, rules and screen context; `FE/realtime.js` and the two AudioWorklets handle the browser side. The microphone stays open until tapped again, the visitor can talk over Zippy, cards follow each spoken reply and every exchange is saved to the chat. Browser dictation is the fallback. Speaking rules live in `coach.voice_style` in the prompts YAML. See [FE/CHAT_API.md](FE/CHAT_API.md#live-voice).
 - **Frontend.** Static HTML, CSS and JavaScript with no build step. It is installable to the iOS Home Screen (`manifest.webmanifest`). `sw.js` shows web push sent by the backend for every notification (VAPID keys on the Backend). The presenter dashboard (`/presenter.html`) triggers moments for a guest by display name with `PRESENTER_KEY`. See [FE/CHAT_API.md](FE/CHAT_API.md#web-push).
 
 ## Where to work

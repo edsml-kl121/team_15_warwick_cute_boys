@@ -102,10 +102,10 @@ class FakeTwilioClient:
 
 
 class FakeRealtime:
-    """Stands in for RealtimeFactory: every prepared phone agent already has its greeting audio ready."""
+    """Stands in for RealtimeFactory: prepared phone agents stay silent until greeted or spoken to."""
 
     def __init__(self):
-        self.prepared, self.closed = [], []
+        self.prepared, self.greeted, self.closed = [], [], []
 
     async def prepare(self, booking):
         self.prepared.append(booking["id"])
@@ -113,18 +113,30 @@ class FakeRealtime:
 
 
 class FakePreparedCall:
+    """Like the Realtime VAD, any audio from the restaurant counts as speech and gets a reply."""
+
     def __init__(self, factory, booking_id):
         self.factory, self.booking_id = factory, booking_id
         self.end_requested = asyncio.Event()
         self.tracker = SimpleNamespace(on_play_bytes=lambda *played: None)
         self.session = self
+        self.events = asyncio.Queue()
+
+    def say(self, data):
+        self.events.put_nowait(SimpleNamespace(type="audio", audio=SimpleNamespace(data=data), item_id="item-1", content_index=0))
+
+    async def greet(self):
+        self.factory.greeted.append(self.booking_id)
+        self.say(b"greeting")
 
     async def send_audio(self, data):
-        pass
+        self.events.put_nowait(SimpleNamespace(type="raw_model_event", data=SimpleNamespace(
+            type="raw_server_event", data={"type": "input_audio_buffer.speech_started"})))
+        self.say(b"reply to hello")
 
     async def __aiter__(self):
-        yield SimpleNamespace(type="audio", audio=SimpleNamespace(data=b"greeting"), item_id="item-1", content_index=0)
-        await asyncio.Event().wait()
+        while True:
+            yield await self.events.get()
 
     async def close(self):
         self.factory.closed.append(self.booking_id)
@@ -375,7 +387,7 @@ def test_coach_reminds_model_to_reply_in_english_right_before_each_message(tmp_p
 
 
 def test_clock_follows_real_bangkok_time_when_not_pinned(tmp_path, monkeypatch):
-    monkeypatch.delenv("DEMO_NOW", raising=False)
+    monkeypatch.delenv("DEMO_NOW")
     with demo(tmp_path, pinned=False) as (client, _):
         now = datetime.fromisoformat(client.get("/today").json()["now"])
         assert abs(now - datetime.now(timezone.utc)) < timedelta(minutes=1)
@@ -871,24 +883,81 @@ def test_human_answer_keeps_the_call_going(tmp_path):
         assert visitor(client).state["bookings"][booking["id"]]["status"] == "calling"
 
 
-def test_phone_agent_is_ready_while_ringing_and_greets_as_soon_as_answered(tmp_path):
+@contextmanager
+def answered_call(client, phone, booking):
+    signature = RequestValidator(TWILIO_TOKEN).compute_signature(phone.media_url, {})
+    with client.websocket_connect("/media-stream", headers={"X-Twilio-Signature": signature}) as twilio:
+        twilio.send_json({"event": "connected"})
+        twilio.send_json({"event": "start", "start": {"streamSid": "MZ-test", "callSid": "CA-test", "customParameters": {
+            "purpose": "book_table", "booking_id": booking["id"]}}})
+        yield twilio
+        twilio.send_json({"event": "stop"})
+
+
+def test_phone_agent_greets_a_silent_pickup_after_a_short_pause(tmp_path, monkeypatch):
+    import telephony
+
+    monkeypatch.setattr(telephony, "SILENT_PICKUP_SECONDS", 0.05)
     realtime = FakeRealtime()
     phone = twilio_phone(realtime=realtime)
     with demo(tmp_path, phone=phone, realtime=realtime) as (client, _):
         booking = book_dinner_call(client)
         assert realtime.prepared == [booking["id"]]
         assert booking["request"] == "a table for 1 at 19:00"
-        signature =RequestValidator(TWILIO_TOKEN).compute_signature(phone.media_url, {})
-        with client.websocket_connect("/media-stream", headers={"X-Twilio-Signature": signature}) as twilio:
-            twilio.send_json({"event": "connected"})
-            twilio.send_json({"event": "start", "start": {"streamSid": "MZ-test", "callSid": "CA-test", "customParameters": {
-                "purpose": "book_table", "booking_id": booking["id"]}}})
+        with answered_call(client, phone, booking) as twilio:
+            client.portal.call(asyncio.sleep, 0.2)
+            assert realtime.greeted == [booking["id"]]
             first = twilio.receive_json()
             assert first["event"] == "media" and base64.b64decode(first["media"]["payload"]) == b"greeting"
-            twilio.send_json({"event": "stop"})
         client.portal.call(asyncio.sleep, 0.1)
         assert realtime.prepared == [booking["id"]]
         assert realtime.closed == [booking["id"]]
+
+
+def test_phone_agent_answers_the_restaurants_hello_without_a_second_greeting(tmp_path, monkeypatch):
+    import telephony
+
+    monkeypatch.setattr(telephony, "SILENT_PICKUP_SECONDS", 0.2)
+    realtime = FakeRealtime()
+    phone = twilio_phone(realtime=realtime)
+    with demo(tmp_path, phone=phone, realtime=realtime) as (client, _):
+        booking = book_dinner_call(client)
+        with answered_call(client, phone, booking) as twilio:
+            twilio.send_json({"event": "media", "media": {"payload": base64.b64encode(b"Hello, Salad Factory").decode()}})
+            first = twilio.receive_json()
+            assert first["event"] == "media" and base64.b64decode(first["media"]["payload"]) == b"reply to hello"
+            client.portal.call(asyncio.sleep, 0.4)
+            assert realtime.greeted == []
+
+
+def test_screen_follows_a_live_call_from_calling_to_on_a_call_to_the_booked_card(tmp_path, monkeypatch):
+    import telephony
+
+    monkeypatch.setattr(telephony, "SILENT_PICKUP_SECONDS", 0.2)
+    realtime = FakeRealtime()
+    phone = twilio_phone(realtime=realtime)
+    with demo(tmp_path, phone=phone, realtime=realtime) as (client, _):
+        def header():
+            return [item["header_status"] for item in client.get("/feed").json() if "header_status" in item][-1]
+
+        booking = book_dinner_call(client)
+        assert header() == "calling"
+        with answered_call(client, phone, booking) as twilio:
+            client.portal.call(asyncio.sleep, 0.05)
+            assert header() == "in_call"  # At pickup, before anyone has spoken.
+            twilio.send_json({"event": "media", "media": {"payload": base64.b64encode(b"Hello, Salad Factory").decode()}})
+            assert base64.b64decode(twilio.receive_json()["media"]["payload"]) == b"reply to hello"
+            assert header() == "in_call"
+            visitor(client).state["bookings"][booking["id"]].update(result="booked", confirmed_time="19:00",
+                                                                     quote="Yes, 7pm for one.")
+        done = twilio_post(client, phone, f"/call-status?booking_id={booking['id']}",
+                           CallSid="CA-test", CallStatus="completed", CallDuration="34")
+        assert done.is_success
+        feed = client.get("/feed").json()
+        call = next(card for card in cards(feed) if card["kind"] == "call")
+        assert (call["status"], call["outcome"], call["duration_s"], call["quote"]) == ("ended", "booked", 34, "Yes, 7pm for one.")
+        assert header() == "online"
+        assert any(card["kind"] == "walk_route" for card in cards(feed))
 
 
 def test_prepared_phone_agent_is_closed_when_nobody_answers(tmp_path):
@@ -901,11 +970,12 @@ def test_prepared_phone_agent_is_closed_when_nobody_answers(tmp_path):
         assert realtime.closed == [booking["id"]]
 
 
-def test_phone_agent_opens_by_introducing_zippy_and_the_booking():
+def test_phone_agent_stays_quiet_while_ringing_and_always_opens_by_introducing_zippy(monkeypatch):
+    import agents.realtime
     from integrations import Prompts
     from telephony import RealtimeFactory
 
-    sent = []
+    sent, runners = [], []
 
     class Session:
         model = SimpleNamespace(send_event=lambda event: asyncio.sleep(0, sent.append(event)))
@@ -913,18 +983,30 @@ def test_phone_agent_opens_by_introducing_zippy_and_the_booking():
         async def enter(self):
             return self
 
-    async def open_session(*_):
-        return Session()
+    class Runner:
+        def __init__(self, agent, config):
+            runners.append((agent, config))
 
+        async def run(self, model_config):
+            return Session()
+
+    monkeypatch.setattr(agents.realtime, "RealtimeRunner", Runner)
     factory = RealtimeFactory(Prompts(None), "realtime-test", None, "English", ["en"])
-    factory.open = open_session
     request = "a table for 2 at 7:30 pm, by the window if possible"
-    asyncio.run(factory.prepare({"restaurant_name": "Salad Factory", "party_size": 2, "time": "19:30", "name": "Ploy",
-                                 "request": request}))
-    message = sent[0].message
-    assert message["type"] == "response.create"
-    greeting = message["other_data"]["response"]["instructions"]
-    assert all(detail in greeting for detail in ("Zippy", "Salad Factory", "Ploy", request))
+
+    async def ring_then_greet():
+        call = await factory.prepare({"restaurant_name": "Salad Factory", "party_size": 2, "time": "19:30",
+                                      "name": "Ploy", "request": request})
+        assert sent == []
+        await call.greet()
+
+    asyncio.run(ring_then_greet())
+    agent, config = runners[0]
+    # Replies to the restaurant's hello and the greeting after a silent pickup follow the same opening.
+    assert all(detail in agent.instructions for detail in ("Zippy", "AI assistant", "Salad Factory", "Ploy", request))
+    turns = config["model_settings"]["audio"]["input"]["turn_detection"]
+    assert (turns["type"], turns["eagerness"], turns["create_response"]) == ("semantic_vad", "low", True)
+    assert [event.message for event in sent] == [{"type": "response.create"}]
 
 
 def test_photo_reset_and_access_checks(tmp_path):
@@ -1555,6 +1637,11 @@ class FakeVoiceSession:
         self.events = asyncio.Queue()
         self.audio_in = bytearray()
         self.closed = False
+        self.sent = []  # raw messages the bridge sent to the model, such as response.create
+        self.model = SimpleNamespace(send_event=self.record)
+
+    async def record(self, event):
+        self.sent.append(event.message["type"])
 
     async def send_audio(self, audio):
         self.audio_in.extend(audio)
@@ -1611,6 +1698,12 @@ def heard(item_id, delta):
         "type": "conversation.item.input_audio_transcription.delta", "item_id": item_id, "delta": delta}))
 
 
+def server(kind, **fields):
+    """A raw Realtime server event, as the SDK passes it through."""
+    return SimpleNamespace(type="raw_model_event", data=SimpleNamespace(type="raw_server_event",
+                                                                        data={"type": kind, **fields}))
+
+
 def test_voice_passes_audio_both_ways_and_reports_being_talked_over(tmp_path):
     with voice_demo(tmp_path) as (client, sessions):
         with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
@@ -1622,9 +1715,81 @@ def test_voice_passes_audio_both_ways_and_reports_being_talked_over(tmp_path):
             assert browser.receive_bytes() == b"\x02\x00" * 100
             assert bytes(session.audio_in) == b"\x01\x00" * 2048
             session.push(type="audio_interrupted")
-            assert browser.receive_json() == {"type": "interrupted"}
+            assert browser.receive_json() == {"type": "hold"}, "Zippy pauses until it knows they said something"
         client.portal.call(asyncio.sleep, 0.1)
         assert session.closed
+
+
+def test_voice_noise_pauses_zippy_then_lets_it_finish_without_an_answer(tmp_path):
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            session.push(server("input_audio_buffer.speech_started", item_id="u2"))
+            assert browser.receive_json() == {"type": "hold"}
+            session.push(type="audio_interrupted")  # the SDK reports the same moment; it pauses only once
+            session.push(server("input_audio_buffer.committed", item_id="u2"))
+            session.push(server("conversation.item.input_audio_transcription.completed", item_id="u2", transcript=" "))
+            assert browser.receive_json() == {"type": "resume"}, "no words, so Zippy finishes what it was saying"
+            assert session.sent == [], "background noise gets no reply"
+
+
+def test_voice_words_stop_zippy_and_get_an_answer_once_they_finish(tmp_path):
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            session.push(server("input_audio_buffer.speech_started", item_id="u2"))
+            assert browser.receive_json() == {"type": "hold"}
+            session.push(heard("u2", "Wait, "))
+            assert browser.receive_json() == {"type": "user", "item_id": "u2", "text": "Wait, "}
+            assert browser.receive_json() == {"type": "interrupted"}, "real words drop the rest of Zippy's reply"
+            assert session.sent == [], "no answer while they are still talking"
+            session.push(heard("u2", "what about lunch?"))
+            assert browser.receive_json()["text"] == "Wait, what about lunch?"
+            session.push(server("input_audio_buffer.committed", item_id="u2"))
+            session.push(server("conversation.item.input_audio_transcription.completed", item_id="u2",
+                                transcript="Wait, what about lunch?"))
+            session.push(server("input_audio_buffer.speech_started", item_id="u3"))
+            assert browser.receive_json() == {"type": "hold"}
+            assert session.sent == ["response.create"], "one answer for one question"
+
+
+def test_voice_still_answers_when_their_words_could_not_be_transcribed(tmp_path):
+    with voice_demo(tmp_path) as (client, sessions):
+        with client.websocket_connect("/voice?session_id=talk&demo=1") as browser:
+            assert browser.receive_json() == {"type": "ready"}
+            session = sessions[0]
+            session.push(server("input_audio_buffer.speech_started", item_id="u2"))
+            assert browser.receive_json() == {"type": "hold"}
+            session.push(server("input_audio_buffer.committed", item_id="u2"))
+            session.push(server("conversation.item.input_audio_transcription.failed", item_id="u2"))
+            assert browser.receive_json() == {"type": "interrupted"}
+            client.portal.call(asyncio.sleep, 0.05)
+            assert session.sent == ["response.create"]
+
+
+def test_voice_session_filters_noise_and_leaves_answering_to_the_bridge(monkeypatch):
+    import agents.realtime
+    import voice
+
+    configs = []
+
+    class Runner:
+        def __init__(self, agent, config):
+            configs.append(config)
+
+        async def run(self):
+            return SimpleNamespace(enter=lambda: asyncio.sleep(0))
+
+    monkeypatch.setattr(agents.realtime, "RealtimeRunner", Runner)
+    asyncio.run(voice.open_voice_session(None, model="gpt-realtime-2.1", threshold=0.8, noise_reduction="far_field"))
+    audio_in = configs[0]["model_settings"]["audio"]["input"]
+    assert audio_in["noise_reduction"] == {"type": "far_field"}
+    assert audio_in["turn_detection"]["type"] == "server_vad" and audio_in["turn_detection"]["threshold"] == 0.8
+    assert audio_in["turn_detection"]["create_response"] is False
+    asyncio.run(voice.open_voice_session(None, model="gpt-realtime-2.1", noise_reduction=None))
+    assert "noise_reduction" not in configs[1]["model_settings"]["audio"]["input"]
 
 
 def test_voice_turn_shows_words_then_cards_in_one_reply_and_is_saved_to_the_chat(tmp_path):
