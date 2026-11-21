@@ -228,7 +228,28 @@
     return typeof text === 'string' ? text : '';
   }
 
+  // Fixed waiting lines, matched to the tool the backend reports, so they show instantly and cost nothing.
+  const WAITING = {
+    general: ['On it…', 'One moment…', 'Let me check…', 'Thinking it through…'],
+    show_products: ['Checking Shopee Mall…', 'Comparing products for you…'],
+    search_products: ['Checking Shopee Mall…', 'Comparing products for you…'],
+    recommend_meal: ['Picking a dish for you…', 'Matching a meal to your protein goal…'],
+    find_similar_dishes: ['Finding places nearby…', 'Checking Shopee Food…'],
+    book_table_by_phone: ['Getting ready to call…', 'Setting up the booking call…'],
+    get_sleep_last_night: ['Looking at last night’s sleep…'],
+    get_activity_today: ['Checking today’s activity…'],
+    get_today: ['Checking your day so far…'],
+    get_food_log: ['Checking what you’ve eaten today…'],
+    get_profile: ['Checking your goals…'],
+    get_health_history: ['Looking at your recent history…'],
+  };
+
+  function waitingMessage(tool, random = Math.random) {
+    const options = WAITING[tool] || WAITING.general;
+    return options[Math.min(options.length - 1, Math.floor(random() * options.length))];
+  }
+
   window.zippyService = {
-    chat, cards, json, photo, demo, currentLocation, transcribe: transcription ? transcribe : null,
+    chat, cards, json, photo, demo, currentLocation, waitingMessage, transcribe: transcription ? transcribe : null,
   };
 })();

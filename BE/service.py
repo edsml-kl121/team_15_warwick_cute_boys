@@ -152,10 +152,8 @@ class Zippy:
                 protein = today["totals"]["protein_g"]
                 goal = today["goals"]["protein_g"]
                 values = {"protein_g": protein, "protein_goal": goal, "protein_gap": max(0, goal - protein)}
-                kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
-                dinner = pick_meal(self.state.get("persona"), values["protein_gap"], kcal_left, DINNER)
-                places = await self.find_places(session_id, dinner["dish"], dinner["kcal"], dinner["protein_g"])
-                items = [{"card": {"kind": "meal", **await self.with_image(dinner, "dishes", dinner["dish"])}}]
+                meal, places = await self.recommend_meal(session_id, "dinner")
+                items = [{"card": meal}]
                 if places:
                     session["pending"] = "walk"
                     nearby = "I found one place nearby." if len(places) == 1 else f"I found {len(session['places'])} places. {places[0]['name']} has the most protein."
@@ -186,6 +184,20 @@ class Zippy:
                 "title": TITLES[moment],
                 "body": notification,
             }}, *items)
+
+    async def meal_card(self, meal_time="dinner"):
+        """A dish that closes today's protein gap within the calories left, as a meal card."""
+        today = self.today()
+        protein_gap = max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"])
+        kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
+        meal = pick_meal(self.state.get("persona"), protein_gap, kcal_left, DINNER, meal_time=meal_time)
+        return {"kind": "meal", **await self.with_image(meal, "dishes", meal["dish"])}
+
+    async def recommend_meal(self, session_id, meal_time="dinner"):
+        """The dinner tip: a dish, then the places that serve it."""
+        meal = await self.meal_card(meal_time)
+        places = await self.find_places(session_id, meal["dish"], meal["kcal"], meal["protein_g"])
+        return meal, places
 
     async def find_products(self, session_id, query):
         """Search Shopee Mall and remember up to four results so the visitor can buy one."""

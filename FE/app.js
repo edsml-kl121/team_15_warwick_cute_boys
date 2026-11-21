@@ -420,9 +420,11 @@
     }
     if (active.pending && !active.response?.text) {
       const dots = node('div', 'typing-dots');
+      const waiting = active.response?.waiting;
       dots.setAttribute('role', 'status');
-      dots.setAttribute('aria-label', 'Waiting for Zippy');
+      dots.setAttribute('aria-label', waiting || 'Waiting for Zippy');
       dots.append(node('i'), node('i'), node('i'));
+      if (waiting) dots.append(node('span', 'typing-status', waiting));
       messages.push(dots);
     }
     log.replaceChildren(...messages);
@@ -433,7 +435,7 @@
   async function requestReply(thread, message) {
     if (thread.pending) return;
     thread.pending = message.id;
-    const reply = { role: 'assistant', text: '', cards: [], replies: [] };
+    const reply = { role: 'assistant', text: '', cards: [], replies: [], waiting: service.waitingMessage() };
     thread.response = reply;
     delete message.error;
     if (thread === active) renderMessages(true);
@@ -444,6 +446,7 @@
         if (thread === active) renderMessages();
       }, restaurantLocation);
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
+      delete reply.waiting;
       thread.messages.push(reply);
       if (!thread.connected) push.sync(thread.id);
       thread.connected = true;
@@ -457,6 +460,7 @@
   }
 
   function applyReply(reply, event) {
+    if (event.type === 'tool' && typeof event.name === 'string' && 'waiting' in reply) reply.waiting = service.waitingMessage(event.name);
     if (event.type === 'delta' && typeof event.text === 'string') reply.text += event.text;
     if (event.type === 'card') reply.cards.push(...service.cards(event.card));
     if (event.type === 'quick_replies' && Array.isArray(event.options)) {

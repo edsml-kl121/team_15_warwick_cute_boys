@@ -195,7 +195,12 @@ def create_app(*, settings=None, shopee=None, clock=None, store=None, health=Non
             photo_reader = MealPhotos(os.getenv("S3_BUCKET"), os.getenv("AWS_REGION"),
                                       os.getenv("S3_ENDPOINT_URL"), os.getenv("S3_ADDRESSING_STYLE", "auto"),
                                       os.getenv("FOOD_SCAN_MODEL") or "gpt-4.1-mini")
-        assistant = coach or (AgentsCoach(prompts) if settings.use_ai else None)
+        # Chat defaults to gpt-6.1-sol on the ultrafast tier; "low" is that model's lowest reasoning effort.
+        # Override per environment, e.g. on Railway. CHAT_SERVICE_TIER=default uses the standard tier.
+        assistant = coach or (AgentsCoach(
+            prompts, os.getenv("CHAT_MODEL") or "gpt-6.1-sol", os.getenv("CHAT_SERVICE_TIER", "ultrafast") or None,
+            os.getenv("CHAT_REASONING_EFFORT") or "low",
+        ) if settings.use_ai else None)
         data = recommendation_data
         if data is None and (bucket := os.getenv("RECOMMENDATION_BUCKET") or os.getenv("S3_BUCKET")):
             client = getattr(photo_reader, "client", None) if bucket == os.getenv("S3_BUCKET") else None

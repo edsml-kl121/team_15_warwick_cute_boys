@@ -19,6 +19,7 @@ from persona import recommendation_context
 class Prompts:
     expected = {
         "coach.shared": set(), "coach.chat_style": set(), "coach.turn_reminder": set(), "coach.time_context": {"now"},
+        "coach.visitor_context": {"visitor"},
         "proactive.morning_sleep.notification": set(),
         "proactive.morning_sleep.intro": set(),
         "proactive.morning_sleep.follow_up": set(),
@@ -226,8 +227,21 @@ class MealPhotos:
 
 
 class AgentsCoach:
-    def __init__(self, prompts):
+    def __init__(self, prompts, model=None, service_tier=None, reasoning="none"):
+        """model None uses the Agents SDK default. service_tier "ultrafast" needs a model that supports it."""
         self.prompts = prompts
+        self.model, self.service_tier, self.reasoning = model, service_tier, reasoning
+
+    def agent(self, service, session_id, cards, *, location=None):
+        from agents import Agent
+        from agents.model_settings import ModelSettings
+        from openai.types.shared import Reasoning
+
+        settings = ModelSettings(reasoning=Reasoning(effort=self.reasoning), verbosity="low",
+                                 extra_args={"service_tier": self.service_tier} if self.service_tier else None)
+        return Agent(name="Zippy", instructions="\n".join(
+            self.prompts.get(key) for key in ("coach.shared", "coach.chat_style")
+        ), model=self.model, model_settings=settings, tools=self.tools(service, session_id, cards, location=location))
 
     def tools(self, service, session_id, cards, *, location=None):
         from agents import function_tool
@@ -279,6 +293,19 @@ class AgentsCoach:
             return card
 
         @function_tool
+        async def recommend_meal(meal_time: str = "dinner") -> dict:
+            """Recommend one dish for the visitor's next meal, display it as a meal card and offer to find places
+            that serve it. Use this whenever they ask what to eat or want a food idea. It shows no restaurants.
+
+            Args:
+                meal_time: "breakfast", "lunch", "dinner" or "snack".
+            """
+            meal = await service.meal_card(meal_time)
+            cards.put_nowait(meal)
+            cards.put_nowait({"quick_replies": [f"Find places for {meal['dish']}", "Not now"]})
+            return {"meal": meal, "next": "Ask whether they'd like places that serve it. Don't name restaurants yet."}
+
+        @function_tool
         async def find_similar_dishes(dish: str, protein_g: int | None = None, calories: int | None = None) -> dict:
             """Find Shopee Food places near the visitor that serve this dish and display them.
             The app handles the search location and delivery checkout. Use shop_id for bookings.
@@ -307,7 +334,7 @@ class AgentsCoach:
             return {key: booking[key] for key in ("id", "restaurant_name", "time", "party_size", "status")}
 
         return [get_sleep_last_night, get_activity_today, get_today, get_profile, get_food_log, get_health_history,
-                show_products, find_similar_dishes, book_table_by_phone]
+                show_products, recommend_meal, find_similar_dishes, book_table_by_phone]
 
     def input(self, service, session_id, message, history):
         """Chat history keeps only text, so restate the bookable places and their shop IDs every turn.
@@ -316,21 +343,20 @@ class AgentsCoach:
         context = [{"role": "developer", "content": "Places the visitor can book now: " + json.dumps(
             [{key: place[key] for key in ("shop_id", "name", "dish", "price_thb", "distance_km")} for place in places],
             ensure_ascii=False)}] if places else []
+        today, profile = service.today(), service.state["profile"]
+        visitor = {"role": "developer", "content": self.prompts.render("coach.visitor_context", visitor=json.dumps({
+            "name": profile["name"], "preferences": profile["preferences"],
+            "goals": today["goals"], "totals": today["totals"]}, ensure_ascii=False))}
         now = {"role": "developer", "content": self.prompts.render(
             "coach.time_context", now=service.now().strftime("%A %Y-%m-%d %H:%M"))}
         reminder = {"role": "developer", "content": self.prompts.get("coach.turn_reminder")}
-        return [*history[-12:], *context, now, reminder, {"role": "user", "content": message}]
+        return [*history[-12:], visitor, *context, now, reminder, {"role": "user", "content": message}]
 
     async def stream(self, service, session_id, message, history, *, location=None):
-        from agents import Agent, Runner
-        from agents.model_settings import ModelSettings
-        from openai.types.shared import Reasoning
+        from agents import Runner
 
         cards = asyncio.Queue()
-        agent = Agent(name="Zippy", instructions="\n".join(
-            self.prompts.get(key) for key in ("coach.shared", "coach.chat_style")
-        ), model_settings=ModelSettings(reasoning=Reasoning(effort="none")),
-            tools=self.tools(service, session_id, cards, location=location))
+        agent = self.agent(service, session_id, cards, location=location)
         run = Runner.run_streamed(agent, self.input(service, session_id, message, history), max_turns=4)
         try:
             async for event in run.stream_events():
@@ -338,8 +364,13 @@ class AgentsCoach:
                     yield {"type": "delta", "text": event.data.delta}
                 if event.type == "run_item_stream_event" and event.name == "tool_called":
                     yield {"type": "tool", "name": event.item.raw_item.name}
-                while not cards.empty():
-                    yield {"type": "card", "card": cards.get_nowait()}
+            # Cards and quick replies wait until the reply text has finished streaming, so they appear below it.
+            while not cards.empty():
+                shown = cards.get_nowait()
+                if "quick_replies" in shown:
+                    yield {"type": "quick_replies", "options": shown["quick_replies"]}
+                else:
+                    yield {"type": "card", "card": shown}
         finally:
             if not run.is_complete:
                 run.cancel("immediate")

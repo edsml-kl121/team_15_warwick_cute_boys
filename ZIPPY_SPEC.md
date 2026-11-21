@@ -74,7 +74,7 @@ Use simulated payments, demo health data, a phone-sized web app and test booking
 | Frontend | Node.js phone-sized web app |
 | Backend | Python 3.13, uv, FastAPI and uvicorn with websockets |
 | Agents | OpenAI Agents SDK (`openai-agents` ≥ 0.24), `Agent` for chat and proactive messages, `RealtimeAgent` for calls, built-in MCP client |
-| Chat | SDK default `gpt-5.6-luna` with reasoning `none`, also used for meal photos |
+| Chat | `gpt-6.1-sol` on the ultrafast service tier with reasoning `low`, set by `CHAT_MODEL`, `CHAT_SERVICE_TIER` and `CHAT_REASONING_EFFORT`. Meal photos use `FOOD_SCAN_MODEL`. |
 | Calls | `gpt-realtime-2.1`, transcription `gpt-live-transcribe` with `languages: ["en", "th"]`, Twilio 9.x REST and Media Streams |
 | Shopee | Simulator at `https://shopee-sim-production.up.railway.app/mcp` |
 | Data | MongoDB on Railway for guest data (JSON files under `DATA_DIR` locally), an injectable demo health provider, and optional imported health history per guest. WHOOP is a stretch goal. |
@@ -205,7 +205,7 @@ Feed items have `{id, at, role, text?, card?, quick_replies?, notify?, header_st
 | Tool owner | Tools |
 |---|---|
 | Coach data | `get_profile`, `get_sleep_last_night`, `get_today`, `get_activity_today`, `get_food_log`, `log_meal` |
-| Coach choices | `show_products`, `show_meal`, `show_places` |
+| Coach choices | `show_products`, `recommend_meal` (the dish card, then places that serve it), `find_similar_dishes` (places for a named dish) |
 | Coach actions | `book_table_by_phone`, `get_booking`, `plan_walk`, `set_reminder`, `suggest_replies` |
 | Shopee shopping | `search_products`, `place_mall_order`, `request_payment`, `get_order_status`, `cancel_order` |
 | Shopee listings | `find_similar_dishes`, `get_menu`, `search_restaurants` |

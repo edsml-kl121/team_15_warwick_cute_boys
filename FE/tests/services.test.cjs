@@ -124,3 +124,15 @@ test('a truncated stream and backend error reject instead of generating a fallba
   const failed = loadService(async () => new Response('{"type":"error","message":"Source unavailable"}', { headers }));
   await assert.rejects(failed.chat('session-1', 'Hi', () => {}), /Source unavailable/);
 });
+
+test('waiting messages follow the tool Zippy is using and fall back to a general one', () => {
+  const service = loadService();
+  const first = () => 0;
+  const last = () => 0.999;
+  const general = service.waitingMessage(undefined, first);
+  assert.ok(general);
+  assert.notEqual(service.waitingMessage('show_products', first), general);
+  assert.notEqual(service.waitingMessage('find_similar_dishes', first), service.waitingMessage('show_products', first));
+  assert.equal(service.waitingMessage('some_new_tool', first), general);
+  assert.notEqual(service.waitingMessage(undefined, last), general, 'the random pick reaches every message');
+});

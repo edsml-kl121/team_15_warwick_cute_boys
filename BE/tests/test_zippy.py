@@ -360,6 +360,29 @@ def test_clock_follows_real_bangkok_time_when_not_pinned(tmp_path, monkeypatch):
         assert now.utcoffset() == timedelta(hours=7)
 
 
+def test_chat_model_defaults_to_fast_short_replies_and_can_use_ultrafast(tmp_path):
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        default = AgentsCoach(zippy.prompts).agent(zippy, "ploy", asyncio.Queue())
+        assert default.model is None or default.model == ""
+        assert (default.model_settings.reasoning.effort, default.model_settings.verbosity) == ("none", "low")
+        assert not default.model_settings.extra_args
+        fast = AgentsCoach(zippy.prompts, model="gpt-6-astra", service_tier="ultrafast", reasoning="low").agent(
+            zippy, "ploy", asyncio.Queue())
+        assert fast.model == "gpt-6-astra"
+        assert fast.model_settings.reasoning.effort == "low"
+        assert fast.model_settings.extra_args == {"service_tier": "ultrafast"}
+
+
+def test_coach_gets_profile_and_todays_totals_every_turn_without_tool_calls(tmp_path):
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        turn = AgentsCoach(zippy.prompts).input(zippy, "ploy", "What should I eat?", [])
+        context = json.loads(json.dumps([item["content"] for item in turn if item["role"] == "developer"]))
+        visitor_context = next(text for text in context if '"name": "Ploy"' in text)
+        assert all(fact in visitor_context for fact in ('"protein_g": 90', '"protein_g": 50'))
+
+
 def test_coach_is_told_the_current_time_every_turn(tmp_path):
     with demo(tmp_path) as (client, _):
         zippy = visitor(client)
@@ -377,6 +400,53 @@ def test_booking_a_time_that_already_passed_today_is_refused(tmp_path):
         use_tool(client, tools, "book_table_by_phone", shop_id="s_salad_factory", time="20:15", party_size=2,
                  request="a table for 2 at 8:15 pm")
         assert [booking["time"] for booking in visitor(client).state["bookings"].values()] == ["20:15"]
+
+
+class ScriptedRun:
+    """Stands in for the Agents SDK streamed run: the model calls a tool, then streams its reply."""
+
+    is_complete = True
+
+    def __init__(self, agent):
+        self.agent = agent
+
+    async def stream_events(self):
+        tool = next(tool for tool in self.agent.tools if tool.name == "get_sleep_last_night")
+        await tool.on_invoke_tool(ToolContext(context=None, tool_name=tool.name, tool_call_id="1", tool_arguments="{}"), "{}")
+        yield SimpleNamespace(type="run_item_stream_event", name="tool_called",
+                              item=SimpleNamespace(raw_item=SimpleNamespace(name=tool.name)))
+        for text in ("You slept ", "5 h 10 m."):
+            yield SimpleNamespace(type="raw_response_event",
+                                  data=SimpleNamespace(type="response.output_text.delta", delta=text))
+
+    def cancel(self, mode):
+        pass
+
+
+def test_chat_reply_text_finishes_streaming_before_its_cards_appear(tmp_path, monkeypatch):
+    from agents import Runner
+
+    monkeypatch.setattr(Runner, "run_streamed", lambda agent, *args, **kwargs: ScriptedRun(agent))
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+
+        async def reply():
+            return [event async for event in AgentsCoach(zippy.prompts).stream(zippy, "ploy", "How did I sleep?", [])]
+
+        events = client.portal.call(reply)
+        assert [event["type"] for event in events] == ["tool", "delta", "delta", "card"]
+
+
+def test_coach_food_recommendation_shows_the_dish_and_asks_before_any_restaurants(tmp_path):
+    with demo(tmp_path) as (client, simulator):
+        tools, shown = coach_tools(client)
+        use_tool(client, tools, "recommend_meal", meal_time="dinner")
+        meal, offer = shown.get_nowait(), shown.get_nowait()
+        assert meal["kind"] == "meal" and meal["dish"] and meal["protein_g"] > 0
+        assert meal["dish"] in offer["quick_replies"][0]
+        assert shown.empty()
+        assert not getattr(simulator, "dish_searches", [])
+        assert visitor(client).session("ploy")["places"] == []
 
 
 def test_coach_shows_products_as_cards_the_visitor_can_buy(tmp_path):

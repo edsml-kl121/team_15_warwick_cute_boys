@@ -18,6 +18,8 @@ http://:{$PORT:3000} {
 	}
 
 	handle {
+		# Revalidate on every load so a deploy never mixes new HTML with cached old CSS or JS.
+		header Cache-Control "no-cache"
 		root * /srv
 		file_server
 	}
