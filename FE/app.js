@@ -12,6 +12,8 @@
   const voiceStatus = voiceDock.querySelector('.voice-status');
   const history = document.querySelector('.history-modal');
   const historyList = history.querySelector('.history-list');
+  const locationButton = history.querySelector('[data-action="toggle-location"]');
+  const locationLabel = locationButton.querySelector('.location-label');
   const locationHint = history.querySelector('.location-hint');
   const order = document.querySelector('.order-dialog');
   const photo = document.querySelector('#meal-photo');
@@ -40,7 +42,8 @@
   let pendingOrder;
   let checkingUpdates = false;
   let previewUrl;
-  let useCurrentLocation = false;
+  let locationState = 'off';
+  let locationVersion = 0;
 
   const pages = window.createZippyPages({
     service,
@@ -183,6 +186,7 @@
 
   function scrollToLatest(animate = false) {
     stopChatScrollFeedback();
+    pinnedToLatest = true;
     chat.scrollTo({ top: chat.scrollHeight, behavior: animate && !reducedMotion.matches ? 'smooth' : 'instant' });
   }
 
@@ -420,26 +424,55 @@
     return group;
   }
 
-  function renderMessages(animate = false) {
+  function renderMessages(animate = false, { followLatest = true } = {}) {
     headerStatus.textContent = active.pending ? 'Replying…' : HEADER_STATUS[active.headerStatus] || HEADER_STATUS.online;
     document.querySelector('.empty-chat').hidden = active.messages.length > 0;
     const messages = active.messages.map(createMessage);
     if (animate) messages.at(-1)?.classList.add('message-enter');
-    if (active.response?.text || active.response?.cards.length || active.response?.replies.length) {
-      messages.push(createMessage(active.response));
-    }
-    if (active.pending && !active.response?.text) {
-      const dots = node('div', 'typing-dots');
-      const waiting = active.response?.waiting;
-      dots.setAttribute('role', 'status');
-      dots.setAttribute('aria-label', waiting || 'Waiting for Zippy');
-      dots.append(node('i'), node('i'), node('i'));
-      if (waiting) dots.append(node('span', 'typing-status', waiting));
-      messages.push(dots);
-    }
+    if (active.pending && active.response) messages.push(createLiveReply(active.response));
     log.replaceChildren(...messages);
     dock.querySelector('.send-message').disabled = Boolean(active.pending);
-    scrollToLatest(animate);
+    if (followLatest) scrollToLatest(animate);
+    drawHistory(); // The sidebar stays visible on wide screens, so keep its list current.
+  }
+
+  // The reply being streamed. Its shape (text / cards / chips present) decides when it must be rebuilt;
+  // otherwise only its text is patched so photos and the avatar don't reload on every token.
+  function liveShape(reply) {
+    return `${Boolean(reply.text)}:${reply.cards.length}:${reply.replies.length}`;
+  }
+
+  function createLiveReply(reply) {
+    let element;
+    if (reply.text || reply.cards.length || reply.replies.length) {
+      element = createMessage(reply);
+    } else {
+      element = node('div', 'typing-dots');
+      element.setAttribute('role', 'status');
+      element.setAttribute('aria-label', reply.waiting || 'Waiting for Zippy');
+      element.append(node('i'), node('i'), node('i'));
+      if (reply.waiting) element.append(node('span', 'typing-status', reply.waiting));
+    }
+    element.classList.add('live-reply');
+    element.dataset.shape = liveShape(reply);
+    return element;
+  }
+
+  let streamFrame = 0;
+  function scheduleStreamRender() {
+    streamFrame ||= requestAnimationFrame(() => {
+      streamFrame = 0;
+      const reply = active.response;
+      const live = log.querySelector('.live-reply');
+      if (!reply || !live) return;
+      if (live.dataset.shape !== liveShape(reply)) return live.replaceWith(createLiveReply(reply));
+      if (reply.text) {
+        live.querySelector('.zt')?.replaceChildren(window.zippyMarkdown.render(reply.text));
+      } else if (reply.waiting && live.getAttribute('aria-label') !== reply.waiting) {
+        live.setAttribute('aria-label', reply.waiting);
+        live.querySelector('.typing-status').textContent = reply.waiting;
+      }
+    });
   }
 
   async function requestReply(thread, message) {
@@ -453,7 +486,7 @@
       const restaurantLocation = await getRestaurantLocation();
       await service.chat(thread.id, message.text, event => {
         applyReply(reply, event);
-        if (thread === active) renderMessages();
+        if (thread === active) scheduleStreamRender();
       }, restaurantLocation);
       if (!reply.text.trim() && !reply.cards.length && !reply.replies.length) throw new Error('Zippy returned an empty reply. Try again.');
       delete reply.waiting;
@@ -465,7 +498,7 @@
     } finally {
       delete thread.pending;
       delete thread.response;
-      if (thread === active) renderMessages(true);
+      if (thread === active) renderMessages(false, { followLatest: pinnedToLatest });
     }
   }
 
@@ -489,6 +522,7 @@
   }
 
   function drawHistory() {
+    history.querySelector('.presenter-link').href = `./presenter.html?session=${encodeURIComponent(active.id)}`;
     history.querySelector('.history-empty').hidden = threads.length > 0;
     historyList.replaceChildren(...threads.map(thread => {
       const item = node('li');
@@ -503,16 +537,30 @@
     }));
   }
 
+  const wideLayout = window.matchMedia('(min-width: 900px)'); // Matches the sidebar breakpoint in styles.css.
+
+  function syncHistoryLayout() {
+    if (history.open) history.close();
+    history.classList.remove('closing');
+    if (wideLayout.matches && ready) {
+      drawHistory();
+      history.show();
+      push.refresh();
+    }
+  }
+
+  wideLayout.addEventListener('change', syncHistoryLayout);
+
   function openHistory() {
+    if (wideLayout.matches) return; // Already shown as a sidebar.
     setMode('idle');
-    history.querySelector('.presenter-link').href = `./presenter.html?session=${encodeURIComponent(active.id)}`;
     drawHistory();
     push.refresh();
     history.showModal();
   }
 
   function closeHistory() {
-    if (!history.open || history.classList.contains('closing')) return;
+    if (wideLayout.matches || !history.open || history.classList.contains('closing')) return;
     if (reducedMotion.matches) return history.close();
     history.classList.add('closing');
     history.querySelector('.history-drawer').addEventListener('animationend', () => {
@@ -545,28 +593,40 @@
     return null;
   }
 
+  function setLocationState(state) {
+    locationState = state;
+    locationVersion += 1;
+    const enabled = state === 'on';
+    locationButton.setAttribute('aria-pressed', String(enabled));
+    locationLabel.textContent = enabled ? 'Using my location ✓' : 'Use my location';
+    locationHint.textContent = {
+      off: 'Restaurant searches use Silom, Bangkok.',
+      on: 'Restaurants near you',
+      failed: 'Searching from Silom',
+    }[state];
+  }
+
   async function getRestaurantLocation() {
-    if (!useCurrentLocation) return null;
-    const position = await service.currentLocation();
-    if (!useCurrentLocation) return null;
-    if (!position) showFeedback('Location unavailable. Searching near Silom, Bangkok.');
+    if (locationState !== 'on') return null;
+    const version = locationVersion;
+    const position = await service.currentLocation().catch(() => null);
+    if (version !== locationVersion) return null;
+    if (!position) {
+      setLocationState('failed');
+      showFeedback('Location unavailable. Searching near Silom, Bangkok.');
+    }
     return position;
   }
 
   async function toggleLocation(control) {
-    if (useCurrentLocation) {
-      useCurrentLocation = false;
-      control.setAttribute('aria-pressed', 'false');
-      locationHint.textContent = 'Restaurant searches use Silom, Bangkok.';
+    if (locationState === 'on') {
+      setLocationState('off');
       return;
     }
     control.disabled = true;
     try {
-      useCurrentLocation = Boolean(await service.currentLocation());
-      control.setAttribute('aria-pressed', String(useCurrentLocation));
-      locationHint.textContent = useCurrentLocation
-        ? 'Location is on for this visit. Ask Zippy to find food nearby.'
-        : 'Location unavailable. Restaurant searches use Silom, Bangkok.';
+      const position = await service.currentLocation().catch(() => null);
+      setLocationState(position ? 'on' : 'failed');
     } finally {
       control.disabled = false;
     }
@@ -939,7 +999,9 @@
     sendMessage(text);
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !history.open && !order.open && !scan.open && mode !== 'idle') setMode('idle', true);
+    if (event.key === 'Escape' && (wideLayout.matches || !history.open) && !order.open && !scan.open && mode !== 'idle') {
+      setMode('idle', true);
+    }
   });
   window.addEventListener('pagehide', () => voice.cancel());
 
@@ -969,6 +1031,7 @@
       main.inert = false;
       if (onboarding.open) onboarding.close();
       route();
+      syncHistoryLayout();
       checkUpdates();
     } catch (error) {
       showOnboarding(error.message, false);
@@ -1079,9 +1142,9 @@
   let chatHeight = chat.clientHeight;
   chat.addEventListener('scroll', () => {
     if (chat.clientHeight !== chatHeight) return; // Caused by the resize, not by the person scrolling.
-    pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
     const now = performance.now();
-    if (now - lastUserScroll > SCROLL_IDLE_MS) return;
+    if (now - lastUserScroll > SCROLL_IDLE_MS) return; // Programmatic scroll (e.g. smooth scroll on send).
+    pinnedToLatest = chat.scrollHeight - chat.scrollTop - chat.clientHeight < PIN_DISTANCE;
     lastUserScroll = now;
     const top = topChatMessage();
     if (top === messageAtFade) return;

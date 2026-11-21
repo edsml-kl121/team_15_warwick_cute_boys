@@ -1117,3 +1117,36 @@ def test_bucket_images_find_slugged_keys_across_extensions():
     assert image_slug("Spaghetti Bolognese (Large)") == "spaghetti-bolognese-large"
     assert asyncio.run(images.find("dishes", "Spaghetti  Bolognese")) == "https://signed.example/dishes/spaghetti-bolognese.webp"
     assert asyncio.run(images.find("restaurants", "s_missing")) is None
+
+
+def test_coach_reply_shows_only_its_last_card_and_quick_replies(tmp_path, monkeypatch):
+    import agents
+
+    class Run:
+        is_complete = True
+
+        def __init__(self, shown):
+            self.shown = shown
+
+        async def stream_events(self):
+            for value in ({"kind": "sleep_insight"}, {"quick_replies": ["Show me options"]},
+                          {"kind": "meal"}, {"quick_replies": ["Find places"]}):
+                self.shown.put_nowait(value)
+                yield type("Event", (), {"type": "agent_updated_stream_event"})()
+
+    with demo(tmp_path) as (client, _):
+        zippy = visitor(client)
+        coach = AgentsCoach(zippy.prompts)
+
+        def fake_agent(service, session_id, cards, *, location=None):
+            return Run(cards)
+
+        monkeypatch.setattr(coach, "agent", fake_agent)
+        monkeypatch.setattr(agents.Runner, "run_streamed", staticmethod(lambda run, *_a, **_kw: run))
+
+        async def collect():
+            return [event async for event in coach.stream(zippy, "ploy", "how did I sleep?", [])]
+
+        events = client.portal.call(collect)
+        assert events == [{"type": "card", "card": {"kind": "meal"}},
+                          {"type": "quick_replies", "options": ["Find places"]}]

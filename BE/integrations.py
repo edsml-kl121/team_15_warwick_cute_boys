@@ -375,13 +375,20 @@ class AgentsCoach:
                     yield {"type": "delta", "text": event.data.delta}
                 if event.type == "run_item_stream_event" and event.name == "tool_called":
                     yield {"type": "tool", "name": event.item.raw_item.name}
-            # Cards and quick replies wait until the reply text has finished streaming, so they appear below it.
+            # Show the final card and its quick replies after the text finishes streaming.
+            last_card = None
+            replies = None
             while not cards.empty():
                 shown = cards.get_nowait()
                 if "quick_replies" in shown:
-                    yield {"type": "quick_replies", "options": shown["quick_replies"]}
+                    replies = shown["quick_replies"]
                 else:
-                    yield {"type": "card", "card": shown}
+                    last_card = shown
+                    replies = None
+            if last_card is not None:
+                yield {"type": "card", "card": last_card}
+            if replies is not None:
+                yield {"type": "quick_replies", "options": replies}
         finally:
             if not run.is_complete:
                 run.cancel("immediate")

@@ -301,11 +301,13 @@ class Zippy:
                 "more": {"count": max(0, len(products) - 2), "price_range": [min(prices), max(prices)]}}
 
     def places_card(self, session_id, location=None):
+        places = self.session(session_id)["places"]
+        source = "current" if location and not self.store.demo else "silom"
         return {
             "kind": "places",
-            "places": self.session(session_id)["places"],
+            "places": places,
             "orderable": not self.store.demo,
-            "location_source": "current" if location and not self.store.demo else "silom",
+            "location_source": places[0].get("location_source", source) if places else source,
         }
 
     async def find_places(self, session_id, dish, calories=None, protein_g=None, *, location=None):
@@ -324,6 +326,7 @@ class Zippy:
                     "shop_id": place["shop_id"], "name": place["name"], "dish": item["name"],
                     "item_id": item.get("item_id"),
                     "protein_g": protein, "price_thb": item["price_thb"], "distance_km": place["distance_km"],
+                    **({"location_source": place["location_source"]} if place.get("location_source") else {}),
                     **({"stock_image_url": place["image_url"]} if place.get("image_url") else {}),
                     **({"stock_image_credit": place["image_credit"]} if place.get("image_credit") else {}),
                 })
@@ -504,8 +507,9 @@ class Zippy:
                 )
                 item = {"item_id": item_id, "name": place["dish"], "shop": place["name"],
                         "price_thb": order["subtotal_thb"]}
+                source = order.get("location_source", "current" if location else "silom")
                 delivery = {"shipping_thb": order["delivery_fee_thb"], "eta_min": order["eta_min"],
-                            "delivery_area": "Current location" if location else "Silom, Bangkok"}
+                            "delivery_area": "Current location" if source == "current" else "Silom, Bangkok"}
             else:
                 item = next((row for row in self.session(session_id)["products"] if row["item_id"] == item_id), None)
                 if item is None:

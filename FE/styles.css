@@ -356,6 +356,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .push-hint:empty { display: none; }
 .location-box:not([hidden]) { display: grid; gap: 6px; }
 .location-box .btn2 { min-height: 40px; font-size: 13px; }
+.location-box .btn2[aria-pressed="true"] { background: #3a6758; border-color: #3a6758; color: #fff; }
 .location-box .material-icons { font-size: 18px; }
 .location-hint { margin: 0; }
 .demo-controls { font-size: 13px; color: #404945; }
@@ -416,3 +417,14 @@ button:disabled { cursor: wait; opacity: .65; }
 .card.pad > p { margin: 0; }
 .health-note { padding: 10px 0 0; margin: 0; border-top: 1px solid #ebe9e2; }
 .list-thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: #efdfce; }
+
+/* Wide screens: chat history stays open as a sidebar beside the app instead of a drawer. */
+@media (min-width: 900px) {
+  body:has(.history-modal[open]) { grid-template-columns: auto auto; justify-content: center; }
+  .history-modal[open] {
+    position: static; order: -1; margin: 0; width: 290px;
+  }
+  .history-scrim, .history-drawer header [data-action="close-history"], .zh [data-action="open-history"] { display: none; }
+  .history-drawer { width: 100%; animation: none; box-shadow: none; border-right: 1px solid #ebe9e2; }
+  .history-modal.closing .history-drawer { animation: none; }
+}
