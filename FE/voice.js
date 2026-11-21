@@ -9,6 +9,9 @@
 
   // How long the speaker must pause after their last words before the message counts as finished.
   const PAUSE_MS = 2500;
+  // Once the browser marks the words as a finished sentence (Chrome does; Safari often doesn't), send almost
+  // at once. The short buffer only catches the speaker carrying straight on.
+  const FINAL_PAUSE_MS = 300;
 
   window.createZippyVoice = ({ onState, onTranscript, onPause, transcribe }) => {
     let cancel = () => {};
@@ -35,7 +38,8 @@
           text = [earlier, latest].filter(Boolean).join(' ');
           onTranscript(text);
           clearTimeout(pauseTimer);
-          if (text) pauseTimer = setTimeout(() => { if (session === current) onPause?.(); }, PAUSE_MS);
+          const finished = Boolean(results[results.length - 1]?.isFinal);
+          if (text) pauseTimer = setTimeout(() => { if (session === current) onPause?.(); }, finished ? FINAL_PAUSE_MS : PAUSE_MS);
         };
         let errorMessage;
         recognition.onerror = ({ error }) => {
@@ -144,6 +148,71 @@
         try { cancel(); } catch { /* The browser may have already stopped capture. */ }
         cancel = () => {};
         finish = () => {};
+      },
+    };
+  };
+
+  // Reads Zippy's reply aloud with the browser's own voice, a sentence at a time as the text streams in.
+  window.createZippySpeaker = ({ synth = window.speechSynthesis, Utterance = window.SpeechSynthesisUtterance } = {}) => {
+    let pending = '';
+    let speaking = 0;
+    let onDone = null;
+    // Cancelling bumps the generation, so sentences from an interrupted reply can't finish the next one.
+    let generation = 0;
+
+    function settle() {
+      if (onDone && speaking === 0) {
+        const done = onDone;
+        onDone = null;
+        done();
+      }
+    }
+
+    function say(text, volume = 1) {
+      const words = text.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim();
+      if ((!words && volume) || !synth || !Utterance) return;
+      const utterance = new Utterance(words);
+      utterance.lang = 'en-US';
+      utterance.volume = volume;
+      if (volume) {
+        const mine = generation;
+        speaking += 1;
+        utterance.onend = utterance.onerror = () => {
+          if (mine !== generation) return;
+          speaking = Math.max(0, speaking - 1);
+          settle();
+        };
+      }
+      synth.speak(utterance);
+    }
+
+    return {
+      feed(text) {
+        pending += text;
+        // A sentence ends at . ! ? or … followed by a space, so "0.3 km" stays whole.
+        const ends = [...pending.matchAll(/[.!?…](?=\s)/g)];
+        if (!ends.length) return;
+        const cut = ends.at(-1).index + 1;
+        say(pending.slice(0, cut));
+        pending = pending.slice(cut);
+      },
+      // onDone runs once everything has been spoken, so a conversation can start listening again.
+      finish(done) {
+        say(pending);
+        pending = '';
+        onDone = done || null;
+        settle();
+      },
+      cancel() {
+        pending = '';
+        onDone = null;
+        speaking = 0;
+        generation += 1;
+        synth?.cancel();
+      },
+      // iPhone Safari only speaks after a tap, so a silent utterance during the tap allows later replies.
+      unlock() {
+        say('', 0);
       },
     };
   };

@@ -267,7 +267,21 @@
     return references.map(reference => referencePages.get(reference)).filter(Boolean);
   }
 
+  // The live voice conversation's address. Caddy adds the server token; the visitor cookie rides along.
+  function voiceUrl(sessionId, restaurantLocation) {
+    const url = urlFor('voice');
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.searchParams.set('session_id', sessionId);
+    if (demo) {
+      url.searchParams.set('demo', '1');
+    } else if (restaurantLocation) {
+      url.searchParams.set('lat', restaurantLocation.lat);
+      url.searchParams.set('lng', restaurantLocation.lng);
+    }
+    return url.href;
+  }
+
   window.zippyService = {
-    chat, cards, json, photo, demo, currentLocation, waitingMessage, referenceLinks, transcribe: transcription ? transcribe : null,
+    chat, cards, json, photo, demo, currentLocation, waitingMessage, referenceLinks, voiceUrl, transcribe: transcription ? transcribe : null,
   };
 })();

@@ -13,6 +13,7 @@ class FakeRecognition {
   stop() { this.stopped = true; }
   abort() {}
   hear(text) { this.onresult({ results: [[{ transcript: text }]] }); }
+  hearFinal(text) { this.onresult({ results: [Object.assign([{ transcript: text }], { isFinal: true })] }); }
   fail(error) { this.onerror({ error }); }
   end() { this.onend(); }
 }
@@ -103,3 +104,72 @@ test('silence without any words never signals ready to send', () => withTimers((
   assert.equal(calls.paused, 0);
   assert.equal(calls.states.at(-1), 'idle');
 }));
+
+test('a finished sentence sends almost immediately instead of after the full wait', () => withTimers(() => {
+  const { recognition, calls } = startVoice();
+  recognition.hearFinal('book a table for two');
+  assert.equal(calls.paused, 0);
+  mock.timers.tick(400);
+  assert.equal(calls.paused, 1, 'sent as soon as the speaker stopped');
+}));
+
+function startSpeaker() {
+  const window = {};
+  vm.runInNewContext(script, { window, document: { documentElement: { lang: 'en' } }, setTimeout, clearTimeout });
+  const spoken = [];
+  const utterances = [];
+  const synth = {
+    speak: utterance => { spoken.push(utterance.text); utterances.push(utterance); },
+    cancel: () => spoken.push('<stopped>'),
+  };
+  function Utterance(text) { this.text = text; }
+  return { speaker: window.createZippySpeaker({ synth, Utterance }), spoken, utterances };
+}
+
+test('replies are read aloud a sentence at a time as they stream, without markdown', () => {
+  const { speaker, spoken } = startSpeaker();
+  speaker.feed('Ploy, try **grilled chicken');
+  assert.deepEqual(spoken, [], 'no finished sentence yet');
+  speaker.feed(' salad**. Easy Health is 0.3 km');
+  assert.deepEqual(spoken, ['Ploy, try grilled chicken salad.'], 'decimals do not end a sentence');
+  speaker.feed(' away.');
+  speaker.finish();
+  assert.deepEqual(spoken, ['Ploy, try grilled chicken salad.', 'Easy Health is 0.3 km away.']);
+});
+
+test('stopping the speaker drops unread text', () => {
+  const { speaker, spoken } = startSpeaker();
+  speaker.feed('Half a sentence');
+  speaker.cancel();
+  speaker.finish();
+  assert.deepEqual(spoken, ['<stopped>']);
+});
+
+test('the speaker says when it has finished reading the reply aloud', () => {
+  const { speaker, utterances } = startSpeaker();
+  let done = 0;
+  speaker.feed('First sentence. Second');
+  speaker.finish(() => { done += 1; });
+  assert.equal(done, 0, 'still speaking');
+  utterances[0].onend();
+  assert.equal(done, 0, 'one sentence left');
+  utterances[1].onend();
+  assert.equal(done, 1);
+});
+
+test('a reply with nothing to read counts as finished straight away', () => {
+  const { speaker } = startSpeaker();
+  let done = 0;
+  speaker.finish(() => { done += 1; });
+  assert.equal(done, 1);
+});
+
+test('interrupting the speaker never reports it as finished, even when old sentences end late', () => {
+  const { speaker, utterances } = startSpeaker();
+  let done = 0;
+  speaker.feed('Some words. More words.');
+  speaker.finish(() => { done += 1; });
+  speaker.cancel();
+  utterances.forEach(utterance => utterance.onend?.());
+  assert.equal(done, 0);
+});

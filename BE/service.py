@@ -3,6 +3,7 @@ import math
 import re
 import uuid
 from collections import defaultdict
+from itertools import zip_longest
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
@@ -16,6 +17,11 @@ MOMENTS = {"morning_sleep": "07:02", "dinner_tip": "18:15", "daily_summary": "19
 TITLES = {"morning_sleep": "Sleep insight", "dinner_tip": "Dinner tip", "daily_summary": "Daily summary",
           "weekly_recap": "Your week"}
 RECAP_REPLIES = ["Plan tomorrow's meals", "Find lighter orders", "Not now"]
+
+
+def normalize(text):
+    """Compare typed and tapped replies the same way, whatever the case or apostrophe."""
+    return text.casefold().strip().replace("’", "'")
 FOOD_SEARCH = re.compile(
     r"\b(dinner|lunch|restaurants?|nearby|near me|where to eat|shopee food|food delivery|order (?:some )?food)\b",
 )
@@ -73,6 +79,8 @@ class Zippy:
         for item in items:
             entry = {"id": len(feed) + 1, "at": self.now().isoformat(), "role": "assistant", **item}
             feed.append(entry)
+            if item.get("quick_replies"):
+                session["offered"] = item["quick_replies"]
             self.record_event(session, type="feed", item=entry)
         self.store.save()
         for item in items:
@@ -251,20 +259,32 @@ class Zippy:
                 "body": notification,
             }}, *items)
 
-    async def meal_card(self, meal_time="dinner"):
-        """A dish that closes today's protein gap within the calories left, as a meal card."""
+    async def meal_card(self, meal_time="dinner", exclude=(), *, max_kcal=None, location=None):
+        """A dish that closes today's protein gap within the calories left, as a meal card.
+
+        Tries the visitor's own history, then the MongoDB food catalog, then the Shopee Food menus nearby.
+        `exclude` skips dishes already shown and `max_kcal` asks for a lighter dish. Returns None when nothing new
+        fits those limits, and raises RecommendationUnavailable when nothing fits at all.
+        """
         today = self.today()
         protein_gap = max(0, today["goals"]["protein_g"] - today["totals"]["protein_g"])
         kcal_left = today["goals"]["kcal"] - today["totals"]["kcal"]
         persona = self.health_persona() or {"profile": {}}
         foods = read_food_catalog(self.store.database)
-        choices = food_candidates(foods, persona, self.state["profile"], self.food_log(today["date"])["meals"], today["date"])
-        if not choices:
-            raise RecommendationUnavailable("No suitable meals were found in the MongoDB food catalog.")
-        best = choices[0]
-        fallback = {key: best[key] for key in ("food_id", "dish", "kcal", "protein_g")}
-        fallback["why"] = "This option fits your meal preferences and nutrition goals."
-        meal = pick_meal(persona, protein_gap, kcal_left, fallback, meal_time=meal_time)
+        choices = [food for food in food_candidates(foods, persona, self.state["profile"],
+                                                    self.food_log(today["date"])["meals"], today["date"])
+                   if food["dish"] not in exclude]
+        fallback = None
+        if choices:
+            fallback = {key: choices[0][key] for key in ("food_id", "dish", "kcal", "protein_g")}
+            fallback["why"] = "This option fits your meal preferences and nutrition goals."
+        meal = pick_meal(persona, protein_gap, kcal_left, fallback, meal_time=meal_time, exclude=exclude)
+        if meal is None or (max_kcal is not None and meal["kcal"] >= max_kcal):
+            meal = await self.menu_meal(exclude, protein_gap, kcal_left, max_kcal, location)
+        if meal is None:
+            if not exclude and max_kcal is None:
+                raise RecommendationUnavailable("No suitable meals were found in the MongoDB food catalog.")
+            return None
         return {"kind": "meal", **await self.with_image(meal, "dishes", meal["dish"])}
 
     async def lookup_food_nutrition(self, query):
@@ -280,21 +300,79 @@ class Zippy:
                           "carbs_g": number(nutrition.get("carbs_g")), "fat_g": number(nutrition.get("fat_g"))})
         return meals
 
+    async def menu_meal(self, exclude, protein_gap, kcal_left, max_kcal=None, location=None):
+        """The best-matching dish on nearby Shopee Food menus that isn't in `exclude`, so ideas never run out."""
+        calories = round(max_kcal * 0.8) if max_kcal else min(max(kcal_left, 300), 600)
+        coordinates = {} if self.store.demo else (location or {})
+        try:
+            hits = await self.shopee.call("find_similar_dishes", dish="", calories=calories,
+                                          protein_g=min(max(protein_gap, 20), 40), limit=35, **coordinates)
+        except Exception:
+            return None  # Menus only add alternatives; without them the visitor is told nothing else fits.
+        for hit in hits:
+            item = hit.get("item", hit)
+            nutrition = item.get("nutrition") or {}
+            kcal, protein = nutrition.get("calories"), nutrition.get("protein_g")
+            if kcal is None or protein is None or item["name"] in exclude:
+                continue
+            if max_kcal is not None and kcal >= max_kcal:
+                continue
+            place = (hit.get("restaurant") or {}).get("name")
+            why = f"{round(protein)} g protein for {round(kcal)} kcal" + (f", on the menu at {place}." if place else ".")
+            return {"dish": item["name"], "kcal": round(kcal), "protein_g": round(protein), "why": why}
+        return None
+
+    async def suggest_meal(self, session_id, meal_time="dinner", *, something_else=False, lighter=False, location=None):
+        """A meal card for this chat. `something_else` skips dishes it already showed; `lighter` also asks for
+        fewer calories than the last dish shown."""
+        session = self.session(session_id)
+        shown = session.setdefault("meals_shown", [])
+        max_kcal = session.get("last_meal_kcal") if lighter else None
+        meal = await self.meal_card(meal_time, exclude=tuple(shown) if something_else or lighter else (),
+                                    max_kcal=max_kcal, location=location)
+        if meal:
+            session["last_meal_kcal"] = meal["kcal"]
+            if meal["dish"] not in shown:
+                shown.append(meal["dish"])
+        return meal
+
     async def recommend_meal(self, session_id, meal_time="dinner"):
         """The dinner tip: a dish, then the places that serve it."""
-        meal = await self.meal_card(meal_time)
+        meal = await self.suggest_meal(session_id, meal_time)
         places = await self.find_places(session_id, meal["dish"], meal["kcal"], meal["protein_g"])
         return meal, places
 
-    async def find_products(self, session_id, query):
-        """Search Shopee Mall and remember up to four results so the visitor can buy one."""
-        results = await self.shopee.call("search_products", query=query)
+    async def mall_catalog(self):
+        """What Shopee Mall actually sells, as product names by category, so nothing gets invented."""
+        catalog = {}
+        for row in await self.shopee.call("search_products", query=""):
+            catalog.setdefault(row.get("category") or "other", []).append(row["name"])
+        return catalog
+
+    async def find_products(self, session_id, query, category=""):
+        """Search Shopee Mall, or browse it with an empty query, and remember up to four results.
+
+        Browsing skips products this chat has already shown, so "what else?" brings up something new.
+        """
+        session = self.session(session_id)
+        seen = session.setdefault("products_shown", {})
+        results = await self.shopee.call("search_products", query=query, **({"category": category} if category else {}))
+        if not query:
+            results = [row for row in results if (row.get("product_id") or row["id"]) not in seen]
+        if not query and not category:
+            # Browsing the whole store: take turns across categories so one aisle doesn't fill every card.
+            aisles = {}
+            for row in results:
+                aisles.setdefault(row.get("category") or "other", []).append(row)
+            results = [row for group in zip_longest(*aisles.values()) for row in group if row]
         products = [{
             "item_id": row.get("product_id") or row["id"], "name": row["name"], "shop": row["shop"],
             "price_thb": row["price_thb"], "rating": row["rating"], "image_url": row.get("image_url"),
             "note": row.get("description") or query.capitalize(),
         } for row in results[:4]]
-        self.session(session_id)["products"] = products
+        if products:
+            session["products"] = products
+            seen.update({product["item_id"]: product for product in products})
         return products
 
     def product_card(self, products):
@@ -355,15 +433,30 @@ class Zippy:
         return text, card
 
     async def chat(self, session_id, message, *, location=None):
+        """Answer one message, remembering which reply buttons it offers for the next one."""
+        session = self.session(session_id)
+        offered = {normalize(option) for option in session.get("offered", [])}
+        session["offered"] = []
+        async for event in self._reply(session_id, message, offered, location=location):
+            if event.get("type") == "quick_replies":
+                session["offered"] = event["options"]
+            yield event
+
+    async def _reply(self, session_id, message, offered, *, location=None):
         session = self.session(session_id)
         if self.store.demo:
             location = None
-        answer = message.casefold().strip().replace("’", "'")
+        answer = normalize(message)
         pending = session["pending"]
-        if answer == "not now":
+
+        def answers(option):
+            """Scripted demo replies only answer the button just offered, unless there is no AI to answer."""
+            return not self.coach or option in offered
+
+        if answer == "not now" and answers("not now"):
             session["pending"] = None
             yield {"type": "delta", "text": "Of course, Ploy." if self.store.demo else "Of course."}
-        elif answer == "show me options":
+        elif answer == "show me options" and answers("show me options"):
             yield {"type": "tool", "name": "search_products"}
             products = await self.find_products(session_id, "eye mask")
             products.sort(key=lambda product: {"p_eyemask": 0, "p_eyemask_cotton": 1}.get(product["item_id"], 2))
@@ -389,22 +482,22 @@ class Zippy:
             yield {"type": "delta", "text": text}
             if card["places"]:
                 yield {"type": "card", "card": card}
-        elif pending == "walk" and answer in {"yes", "yes, i'll walk", "i'll walk"}:
+        elif pending == "walk" and answer in {"yes", "yes, i'll walk", "i'll walk"} and answers("yes, i'll walk"):
             session["pending"] = "book"
             name = session["places"][0]["name"]
             yield {"type": "delta", "text": f"Nice. I can call {name}. Book a table for 1 at 7 pm?"}
             yield {"type": "quick_replies", "options": ["Yes, book it", "Not now"]}
-        elif pending == "book" and answer in {"yes", "yes, book it", "book it"}:
+        elif pending == "book" and answer in {"yes", "yes, book it", "book it"} and answers("yes, book it"):
             yield {"type": "tool", "name": "book_table_by_phone"}
             booking = await self.book(session_id, session["places"][0]["shop_id"])
             session["pending"] = None
             yield {"type": "delta", "text": f"Calling {booking['restaurant_name']} now."}
-        elif pending == "retry" and session.get("alternate") and answer == f"call {session['alternate']['name']}".casefold():
+        elif pending == "retry" and session.get("alternate") and answer == normalize(f"call {session['alternate']['name']}") and answers(answer):
             yield {"type": "tool", "name": "book_table_by_phone"}
             booking = await self.book(session_id, session["alternate"]["shop_id"])
             session["pending"] = None
             yield {"type": "delta", "text": f"Calling {booking['restaurant_name']} now."}
-        elif answer in {"plan tomorrow's meals", "find lighter orders"}:
+        elif answer in {"plan tomorrow's meals", "find lighter orders"} and answers(answer):
             for event in self.recap_answer(answer):
                 yield event
         elif (NUTRITION_LOOKUP.search(answer) and not NUTRITION_CONTEXT.search(answer)) or (
@@ -532,7 +625,9 @@ class Zippy:
                 delivery = {"shipping_thb": order["delivery_fee_thb"], "eta_min": order["eta_min"],
                             "delivery_area": "Current location" if source == "current" else "Silom, Bangkok"}
             else:
-                item = next((row for row in self.session(session_id)["products"] if row["item_id"] == item_id), None)
+                session = self.session(session_id)
+                item = session.get("products_shown", {}).get(item_id) or next(
+                    (row for row in session["products"] if row["item_id"] == item_id), None)
                 if item is None:
                     raise ValueError("Choose a product from your comparison first.")
                 order = await self.shopee.call("place_mall_order", items=[{"product_id": item_id, "qty": 1}])
